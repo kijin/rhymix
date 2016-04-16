@@ -432,20 +432,20 @@ class commentController extends comment
 			{
 				if($obj->use_html != 'Y')
 				{
-					$obj->content = htmlspecialchars($obj->content, ENT_COMPAT | ENT_HTML401, 'UTF-8', false);
+					$obj->content = preg_replace('/<br[^>]*>[\r\n]*/i', "\n", htmlspecialchars_decode($obj->content));
+					$obj->content = Rhymix\Framework\Formatter::text2html($obj->content);
 				}
-				$obj->content = nl2br($obj->content);
+				else
+				{
+					$obj->content = nl2br($obj->content);
+				}
 			}
 			else
 			{
-				$oEditorModel = getModel('editor');
-				$editor_config = $oEditorModel->getEditorConfig($obj->module_srl);
-				
-				if(strpos($editor_config->sel_comment_editor_colorset, 'nohtml') !== FALSE)
+				if(strpos(getModel('editor')->getEditorConfig($obj->module_srl)->sel_comment_editor_colorset, 'nohtml') !== FALSE)
 				{
-					$obj->content = preg_replace('/\<br(\s*)?\/?\>/i', PHP_EOL, $obj->content);
-					$obj->content = htmlspecialchars($obj->content, ENT_COMPAT | ENT_HTML401, 'UTF-8', false);
-					$obj->content = str_replace(array("\r\n", "\r", "\n"), '<br />', $obj->content);
+					$obj->content = preg_replace('/<br[^>]*>[\r\n]*/i', "\n", htmlspecialchars_decode($obj->content));
+					$obj->content = Rhymix\Framework\Formatter::text2html($obj->content);
 				}
 			}
 		}
@@ -867,20 +867,20 @@ class commentController extends comment
 			{
 				if($obj->use_html != 'Y')
 				{
-					$obj->content = htmlspecialchars($obj->content, ENT_COMPAT | ENT_HTML401, 'UTF-8', false);
+					$obj->content = preg_replace('/<br[^>]*>[\r\n]*/i', "\n", htmlspecialchars_decode($obj->content));
+					$obj->content = Rhymix\Framework\Formatter::text2html($obj->content);
 				}
-				$obj->content = nl2br($obj->content);
+				else
+				{
+					$obj->content = nl2br($obj->content);
+				}
 			}
 			else
 			{
-				$oEditorModel = getModel('editor');
-				$editor_config = $oEditorModel->getEditorConfig($obj->module_srl);
-				
-				if(strpos($editor_config->sel_comment_editor_colorset, 'nohtml') !== FALSE)
+				if(strpos(getModel('editor')->getEditorConfig($obj->module_srl)->sel_comment_editor_colorset, 'nohtml') !== FALSE)
 				{
-					$obj->content = preg_replace('/\<br(\s*)?\/?\>/i', PHP_EOL, $obj->content);
-					$obj->content = htmlspecialchars($obj->content, ENT_COMPAT | ENT_HTML401, 'UTF-8', false);
-					$obj->content = str_replace(array("\r\n", "\r", "\n"), '<br />', $obj->content);
+					$obj->content = preg_replace('/<br[^>]*>[\r\n]*/i', "\n", htmlspecialchars_decode($obj->content));
+					$obj->content = Rhymix\Framework\Formatter::text2html($obj->content);
 				}
 			}
 		}
