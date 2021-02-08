@@ -145,7 +145,7 @@ class module extends ModuleObject
 		}
 		if (!$oDB->isColumnExists('modules', 'domain_srl'))
 		{
-			$oDB->addColumn('modules', 'domain_srl', 'number', 11, 0, true, 'module_category_srl');
+			$oDB->addColumn('modules', 'domain_srl', 'number', 11, -1, true, 'module_category_srl');
 		}
 		if (!$oDB->isIndexExists('modules', 'idx_domain_srl'))
 		{
