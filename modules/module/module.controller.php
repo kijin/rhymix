@@ -315,6 +315,7 @@ class moduleController extends module
 		unset($extra_vars->module_srl);
 		unset($extra_vars->module);
 		unset($extra_vars->module_category_srl);
+		unset($extra_vars->domain_srl);
 		unset($extra_vars->layout_srl);
 		unset($extra_vars->mlayout_srl);
 		unset($extra_vars->use_mobile);
