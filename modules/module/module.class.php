@@ -57,10 +57,14 @@ class module extends ModuleObject
 			return true;
 		}
 
-		// check domain_srl column
+		// Remove site_srl column from tables
+		if ($oDB->isIndexExists('lang', 'idx_lang')) return true;
+		if ($oDB->isColumnExists('lang', 'site_srl')) return true;
 		if ($oDB->isIndexExists('modules', 'idx_site_mid')) return true;
 		if ($oDB->isColumnExists('modules', 'site_srl')) return true;
 		if ($oDB->isColumnExists('module_config', 'site_srl')) return true;
+		
+		// Add domain_srl column
 		if (!$oDB->isColumnExists('modules', 'domain_srl')) return true;
 		if (!$oDB->isIndexExists('modules', 'idx_domain_srl')) return true;
 		if (!$oDB->isIndexExists('modules', 'idx_mid')) return true;
@@ -105,12 +109,12 @@ class module extends ModuleObject
 		if(!$oDB->isColumnExists('action_forward', 'global_route')) return true;
 		
 		// check additional indexes on lang table
-		if(!$oDB->isIndexExists('lang', 'idx_site_srl')) return true;
 		if(!$oDB->isIndexExists('lang', 'idx_name')) return true;
 		if(!$oDB->isIndexExists('lang', 'idx_lang_code')) return true;
+		if(!$oDB->isIndexExists('lang', 'idx_lang_new')) return true;
 		
 		// check deprecated lang code
-		$output = executeQuery('module.getLangCount', ['site_srl' => 0, 'lang_code' => 'jp']);
+		$output = executeQuery('module.getLangCount', ['lang_code' => 'jp']);
 		if ($output->data->count > 0)
 		{
 			return true;
@@ -130,7 +134,15 @@ class module extends ModuleObject
 			$this->migrateDomains();
 		}
 		
-		// Check domain_srl column
+		// Remove site_srl column from tables
+		if ($oDB->isIndexExists('lang', 'idx_lang'))
+		{
+			$oDB->dropIndex('lang', 'idx_lang');
+		}
+		if ($oDB->isColumnExists('lang', 'site_srl'))
+		{
+			$oDB->dropColumn('lang', 'site_srl');
+		}
 		if ($oDB->isIndexExists('modules', 'idx_site_mid'))
 		{
 			$oDB->dropIndex('modules', 'idx_site_mid');
@@ -143,6 +155,8 @@ class module extends ModuleObject
 		{
 			$oDB->dropColumn('module_config', 'site_srl');
 		}
+		
+		// Add domain_srl column
 		if (!$oDB->isColumnExists('modules', 'domain_srl'))
 		{
 			$oDB->addColumn('modules', 'domain_srl', 'number', 11, -1, true, 'module_category_srl');
@@ -212,10 +226,6 @@ class module extends ModuleObject
 		}
 		
 		// check additional indexes on lang table
-		if(!$oDB->isIndexExists('lang', 'idx_site_srl'))
-		{
-			$oDB->addIndex('lang', 'idx_site_srl', array('site_srl'), false);
-		}
 		if(!$oDB->isIndexExists('lang', 'idx_name'))
 		{
 			$oDB->addIndex('lang', 'idx_name', array('name'), false);
@@ -224,9 +234,13 @@ class module extends ModuleObject
 		{
 			$oDB->addIndex('lang', 'idx_lang_code', array('lang_code'), false);
 		}
+		if(!$oDB->isIndexExists('lang', 'idx_lang_new'))
+		{
+			$oDB->addIndex('lang', 'idx_lang_new', array('name', 'lang_code'), false);
+		}
 		
 		// check deprecated lang code
-		$output = executeQuery('module.getLangCount', ['site_srl' => 0, 'lang_code' => 'jp']);
+		$output = executeQuery('module.getLangCount', ['lang_code' => 'jp']);
 		if ($output->data->count > 0)
 		{
 			$output = executeQuery('module.updateLangCode', ['lang_code' => 'jp', 'new_lang_code' => 'ja']);

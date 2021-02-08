@@ -1285,7 +1285,7 @@ class moduleModel extends module
 	/**
 	 * @brief Get all of module configurations for each mid
 	 */
-	public static function getModulePartConfigs($module, $site_srl = 0)
+	public static function getModulePartConfigs($module)
 	{
 		$args = new stdClass();
 		$args->module = $module;
