@@ -12,12 +12,6 @@ class module extends ModuleObject
 	 */
 	function moduleInstall()
 	{
-		// Register action forward (to use in administrator mode)
-		$oModuleController = getController('module');
-
-		$oDB = DB::getInstance();
-		$oDB->addIndex("modules","idx_site_mid", array("site_srl","mid"), true);
-
 		// Insert new domain
 		if(!getModel('module')->getDefaultDomainInfo())
 		{
@@ -63,6 +57,14 @@ class module extends ModuleObject
 			return true;
 		}
 
+		// check domain_srl column
+		if ($oDB->isIndexExists('modules', 'idx_site_mid')) return true;
+		if ($oDB->isColumnExists('modules', 'site_srl')) return true;
+		if ($oDB->isColumnExists('module_config', 'site_srl')) return true;
+		if (!$oDB->isColumnExists('modules', 'domain_srl')) return true;
+		if (!$oDB->isIndexExists('modules', 'idx_domain_srl')) return true;
+		if (!$oDB->isIndexExists('modules', 'idx_mid')) return true;
+		
 		// check fix mskin
 		if(!$oDB->isColumnExists("modules", "is_mskin_fix")) return true;
 
@@ -121,11 +123,37 @@ class module extends ModuleObject
 	function moduleUpdate()
 	{
 		$oDB = DB::getInstance();
-
+		
 		// Migrate domains
 		if (!getModel('module')->getDefaultDomainInfo())
 		{
 			$this->migrateDomains();
+		}
+		
+		// Check domain_srl column
+		if ($oDB->isIndexExists('modules', 'idx_site_mid'))
+		{
+			$oDB->dropIndex('modules', 'idx_site_mid');
+		}
+		if ($oDB->isColumnExists('modules', 'site_srl'))
+		{
+			$oDB->dropColumn('modules', 'site_srl');
+		}
+		if ($oDB->isColumnExists('module_config', 'site_srl'))
+		{
+			$oDB->dropColumn('module_config', 'site_srl');
+		}
+		if (!$oDB->isColumnExists('modules', 'domain_srl'))
+		{
+			$oDB->addColumn('modules', 'domain_srl', 'number', 11, 0, true, 'module_category_srl');
+		}
+		if (!$oDB->isIndexExists('modules', 'idx_domain_srl'))
+		{
+			$oDB->addIndex('modules', 'idx_domain_srl', array('domain_srl'));
+		}
+		if (!$oDB->isIndexExists('modules', 'idx_mid'))
+		{
+			$oDB->addIndex('modules', 'idx_mid', array('mid'));
 		}
 		
 		// check ruleset directory
