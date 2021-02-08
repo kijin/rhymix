@@ -63,6 +63,7 @@ class module extends ModuleObject
 		if ($oDB->isIndexExists('modules', 'idx_site_mid')) return true;
 		if ($oDB->isColumnExists('modules', 'site_srl')) return true;
 		if ($oDB->isColumnExists('module_config', 'site_srl')) return true;
+		if ($oDB->isTableExists('site_admin')) return true;
 		
 		// Add domain_srl column
 		if (!$oDB->isColumnExists('modules', 'domain_srl')) return true;
@@ -154,6 +155,10 @@ class module extends ModuleObject
 		if ($oDB->isColumnExists('module_config', 'site_srl'))
 		{
 			$oDB->dropColumn('module_config', 'site_srl');
+		}
+		if ($oDB->isTableExists('site_admin'))
+		{
+			$oDB->dropTable('site_admin');
 		}
 		
 		// Add domain_srl column
