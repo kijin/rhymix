@@ -3,6 +3,7 @@
     <column name="module" type="varchar" size="80" notnull="notnull" index="idx_module" />
     <column name="module_category_srl" type="number" size="11" default="0" index="idx_module_category" />
     <column name="domain_srl" type="number" size="11" default="-1" index="idx_domain_srl" />
+    <column name="site_srl" type="number" notnull="notnull" default="0" />
     <column name="layout_srl" type="number" size="11" default="0" />
 	<column name="use_mobile" type="char" size="1" default="N" />
     <column name="mlayout_srl" type="number" size="11" default="0" />

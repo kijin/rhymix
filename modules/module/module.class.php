@@ -59,10 +59,10 @@ class module extends ModuleObject
 
 		// Remove site_srl column from tables
 		if ($oDB->isIndexExists('lang', 'idx_lang')) return true;
-		if ($oDB->isColumnExists('lang', 'site_srl')) return true;
+		if ($oDB->getColumnInfo('lang', 'site_srl')->default_value === null) return true;
 		if ($oDB->isIndexExists('modules', 'idx_site_mid')) return true;
-		if ($oDB->isColumnExists('modules', 'site_srl')) return true;
-		if ($oDB->isColumnExists('module_config', 'site_srl')) return true;
+		if ($oDB->getColumnInfo('modules', 'site_srl')->default_value === null) return true;
+		if ($oDB->getColumnInfo('module_config', 'site_srl')->default_value === null) return true;
 		if ($oDB->isTableExists('site_admin')) return true;
 		
 		// Add domain_srl column
@@ -140,21 +140,21 @@ class module extends ModuleObject
 		{
 			$oDB->dropIndex('lang', 'idx_lang');
 		}
-		if ($oDB->isColumnExists('lang', 'site_srl'))
+		if ($oDB->getColumnInfo('lang', 'site_srl')->default_value === null)
 		{
-			$oDB->dropColumn('lang', 'site_srl');
+			$oDB->modifyColumn('lang', 'site_srl', 'number', null, 0, true, 'lang_code');
 		}
 		if ($oDB->isIndexExists('modules', 'idx_site_mid'))
 		{
 			$oDB->dropIndex('modules', 'idx_site_mid');
 		}
-		if ($oDB->isColumnExists('modules', 'site_srl'))
+		if ($oDB->getColumnInfo('modules', 'site_srl')->default_value === null)
 		{
-			$oDB->dropColumn('modules', 'site_srl');
+			$oDB->modifyColumn('modules', 'site_srl', 'number', null, 0, true, 'module_category_srl');
 		}
-		if ($oDB->isColumnExists('module_config', 'site_srl'))
+		if ($oDB->getColumnInfo('module_config', 'site_srl')->default_value === null)
 		{
-			$oDB->dropColumn('module_config', 'site_srl');
+			$oDB->modifyColumn('module_config', 'site_srl', 'number', null, 0, true, 'module');
 		}
 		if ($oDB->isTableExists('site_admin'))
 		{
