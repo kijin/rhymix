@@ -863,10 +863,13 @@ class boardView extends board
 				}
 			}
 			
-			$member_info = MemberModel::getMemberInfo($oDocument->get('member_srl'));
-			if($member_info->is_admin == 'Y' && $this->user->is_admin != 'Y')
+			if ($this->module_info->protect_admin_content_update !== 'N')
 			{
-				throw new Rhymix\Framework\Exception('msg_admin_document_no_modify');
+				$member_info = MemberModel::getMemberInfo($oDocument->get('member_srl'));
+				if($member_info->is_admin == 'Y' && $this->user->is_admin != 'Y')
+				{
+					throw new Rhymix\Framework\Exception('msg_admin_document_no_modify');
+				}
 			}
 		}
 
@@ -1000,6 +1003,15 @@ class boardView extends board
 			if($oDocument->get('comment_count')>0 && $this->grant->manager == false)
 			{
 				throw new Rhymix\Framework\Exception('msg_protect_delete_content');
+			}
+		}
+
+		if ($this->module_info->protect_admin_content_delete !== 'N')
+		{
+			$member_info = MemberModel::getMemberInfo($oDocument->get('member_srl'));
+			if($member_info->is_admin == 'Y' && $this->user->is_admin != 'Y')
+			{
+				throw new Rhymix\Framework\Exception('document.msg_document_is_admin_not_permitted');
 			}
 		}
 
