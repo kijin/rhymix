@@ -423,7 +423,7 @@ class ModuleHandler extends Handler
 		}
 		else
 		{
-			$oModule = self::getModuleInstance($this->module, $type, $kind);
+			$oModule = self::getModuleInstance($this->module, $type ?: 'class', $kind);
 		}
 
 		if(!is_object($oModule))
@@ -1249,8 +1249,20 @@ class ModuleHandler extends Handler
 			$type = $item->type;
 			$called_method = $item->called_method;
 
-			// todo why don't we call a normal class object ?
-			$oModule = getModule($module, $type);
+			// Get instance of module class
+			if (strpos($type, '\\') !== false)
+			{
+				$class_name = sprintf('Rhymix\\Modules\\%s\\%s', $module, $type);
+				if (class_exists($class_name))
+				{
+					$oModule = $class_name::getInstance();
+				}
+			}
+			else
+			{
+				$oModule = getModule($module, $type);
+			}
+
 			if(!$oModule || !method_exists($oModule, $called_method))
 			{
 				continue;
