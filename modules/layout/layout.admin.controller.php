@@ -111,10 +111,7 @@ class layoutAdminController extends layout
 		if($layout_info->menu)
 		{
 			$menus = get_object_vars($layout_info->menu);
-		}
-		if(count($menus))
-		{
-			foreach($menus as $menu_id => $val)
+			foreach($menus ?: [] as $menu_id => $val)
 			{
 				$menu_srl = Context::get($menu_id);
 				if(!$menu_srl) continue;
@@ -695,12 +692,23 @@ class layoutAdminController extends layout
 		$args = new stdClass();
 		$args->extra_vars = $output->extra_vars;
 		$extra_vars = unserialize($args->extra_vars);
+		$image_list = array();
 		
-		if($layout->extra_var_count) {
+		if($layout->extra_var_count && $extra_vars)
+		{
 			$reg = "/^.\/files\/attach\/images\/([0-9]+)\/(.*)/";
-			if($extra_vars) foreach($extra_vars as $key => $val) {
-				if($layout->extra_var->{$key}->type == 'image') {
-					if(!preg_match($reg,$val,$matches)) continue;
+			foreach($extra_vars as $key => $val)
+			{
+				if($layout->extra_var->{$key}->type == 'image')
+				{
+					if(!preg_match($reg, $val, $matches))
+					{
+						continue;
+					}
+					if(!isset($image_list[$key]))
+					{
+						$image_list[$key] = new stdClass;
+					}
 					$image_list[$key]->filename = $matches[2];
 					$image_list[$key]->old_file = $val;
 				}
@@ -732,9 +740,11 @@ class layoutAdminController extends layout
 				$args->layout_srl = getNextSequence();
 				$args->title = $value;
 
-				if(is_array($image_list)) {
-					foreach($image_list as $key=>$val) {
-						$new_file = sprintf("./files/attach/images/%d/%s", $args->layout_srl,$val->filename);
+				if($image_list)
+				{
+					foreach($image_list as $key => $val)
+					{
+						$new_file = sprintf("./files/attach/images/%d/%s", $args->layout_srl, $val->filename);
 						FileHandler::copyFile($val->old_file, $new_file);
 						$extra_vars->{$key} = $new_file;
 					}

@@ -100,7 +100,7 @@ class boardController extends board
 		$logged_info = Context::get('logged_info');
 		
 		// Set anonymous information
-		if($this->module_info->use_anonymous == 'Y')
+		if($this->module_info->use_anonymous == 'Y' && (!$this->grant->manager || ($this->module_info->anonymous_except_admin ?? 'N') !== 'Y'))
 		{
 			if(!$obj->document_srl)
 			{
@@ -118,7 +118,7 @@ class boardController extends board
 		}
 		
 		// Update if the document already exists.
-		$oDocument = DocumentModel::getDocument($obj->document_srl, $this->grant->manager);
+		$oDocument = DocumentModel::getDocument($obj->document_srl);
 		if($oDocument->isExists())
 		{
 			if(!$oDocument->isGranted())
@@ -127,17 +127,20 @@ class boardController extends board
 			}
 			
 			// Protect admin document
-			$member_info = MemberModel::getMemberInfo($oDocument->get('member_srl'));
-			if($member_info->is_admin == 'Y' && $logged_info->is_admin != 'Y')
+			if ($this->module_info->protect_admin_content_update !== 'N')
 			{
-				throw new Rhymix\Framework\Exception('msg_admin_document_no_modify');
+				$member_info = MemberModel::getMemberInfo($oDocument->get('member_srl'));
+				if($member_info->is_admin == 'Y' && $logged_info->is_admin != 'Y')
+				{
+					throw new Rhymix\Framework\Exception('msg_admin_document_no_modify');
+				}
 			}
 			
 			// if document status is temp
 			if($oDocument->get('status') == DocumentModel::getConfigStatus('temp'))
 			{
 				// if use anonymous, set the member_srl to a negative number
-				if($this->module_info->use_anonymous == 'Y')
+				if($this->module_info->use_anonymous == 'Y' && (!$this->grant->manager || ($this->module_info->anonymous_except_admin ?? 'N') !== 'Y'))
 				{
 					$obj->member_srl = abs($oDocument->get('member_srl')) * -1;
 					$oDocument->add('member_srl', $obj->member_srl);
@@ -173,6 +176,10 @@ class boardController extends board
 					$obj->module_srl = $oDocument->get('module_srl');
 					$obj->category_srl = $oDocument->get('category_srl');
 				}
+				else
+				{
+					$obj->module_srl = $oDocument->get('module_srl');
+				}
 				
 				// notice & document style same as before if not manager
 				if(!$this->grant->manager)
@@ -194,7 +201,7 @@ class boardController extends board
 		else
 		{
 			// if use anonymous, set the member_srl to a negative number
-			if($this->module_info->use_anonymous == 'Y')
+			if($this->module_info->use_anonymous == 'Y' && (!$this->grant->manager || ($this->module_info->anonymous_except_admin ?? 'N') !== 'Y'))
 			{
 				$obj->member_srl = $logged_info->member_srl * -1;
 			}
@@ -327,6 +334,15 @@ class boardController extends board
 			}
 		}
 
+		if ($this->module_info->protect_admin_content_delete !== 'N' && $this->user->is_admin !== 'Y')
+		{
+			$member_info = MemberModel::getMemberInfo($oDocument->get('member_srl'));
+			if($member_info->is_admin === 'Y')
+			{
+				return new BaseObject(-1, 'document.msg_document_is_admin_not_permitted');
+			}
+		}
+
 		if($this->module_info->protect_document_regdate > 0 && $this->grant->manager == false)
 		{
 			if($oDocument->get('regdate') < date('YmdHis', strtotime('-'.$this->module_info->protect_document_regdate.' day')))
@@ -389,8 +405,7 @@ class boardController extends board
 
 		// get the relevant data for inserting comment
 		$obj = Context::getRequestVars();
-		$obj->module_srl = $this->module_srl;
-		
+
 		// Remove disallowed Unicode symbols.
 		if ($this->module_info->filter_specialchars !== 'N')
 		{
@@ -436,8 +451,10 @@ class boardController extends board
 			throw new Rhymix\Framework\Exceptions\TargetNotFound;
 		}
 
+		$obj->module_srl = $oDocument->get('module_srl');
+		
 		// For anonymous use, remove writer's information and notifying information
-		if($this->module_info->use_anonymous == 'Y')
+		if($this->module_info->use_anonymous == 'Y' && (!$this->grant->manager || ($this->module_info->anonymous_except_admin ?? 'N') !== 'Y'))
 		{
 			$this->module_info->admin_mail = '';
 			$obj->notify_message = 'N';
@@ -462,7 +479,7 @@ class boardController extends board
 		}
 		else
 		{
-			$comment = CommentModel::getComment($obj->comment_srl, $this->grant->manager);
+			$comment = CommentModel::getComment($obj->comment_srl);
 			if($this->module_info->protect_update_comment === 'Y' && $this->grant->manager == false)
 			{
 				$childs = CommentModel::getChildComments($obj->comment_srl);
@@ -473,10 +490,13 @@ class boardController extends board
 			}
 		}
 
-		$member_info = MemberModel::getMemberInfo($comment->member_srl);
-		if($member_info->is_admin == 'Y' && $logged_info->is_admin != 'Y')
+		if ($this->module_info->protect_admin_content_update !== 'N')
 		{
-			throw new Rhymix\Framework\Exception('msg_admin_comment_no_modify');
+			$member_info = MemberModel::getMemberInfo($comment->member_srl);
+			if($member_info->is_admin == 'Y' && $logged_info->is_admin != 'Y')
+			{
+				throw new Rhymix\Framework\Exception('msg_admin_comment_no_modify');
+			}
 		}
 
 		// INSERT if comment_srl does not exist.
@@ -562,7 +582,7 @@ class boardController extends board
 			$instant_delete = Context::get('instant_delete');
 		}
 
-		$comment = CommentModel::getComment($comment_srl, $this->grant->manager);
+		$comment = CommentModel::getComment($comment_srl);
 		if (!$comment || !$comment->isExists())
 		{
 			throw new Rhymix\Framework\Exceptions\TargetNotFound;
@@ -582,6 +602,15 @@ class boardController extends board
 			}
 		}
 		
+		if ($this->module_info->protect_admin_content_delete !== 'N' && $this->user->is_admin !== 'Y')
+		{
+			$member_info = MemberModel::getMemberInfo($comment->get('member_srl'));
+			if($member_info->is_admin === 'Y')
+			{
+				return new BaseObject(-1, 'comment.msg_admin_comment_no_delete');
+			}
+		}
+
 		if($this->module_info->protect_comment_regdate > 0 && $this->grant->manager == false)
 		{
 			if($comment->get('regdate') < date('YmdHis', strtotime('-'.$this->module_info->protect_document_regdate.' day')))
@@ -593,15 +622,12 @@ class boardController extends board
 		}
 		// generate comment  controller object
 		$oCommentController = getController('comment');
-
-		$updateComment = false;
 		if($this->module_info->comment_delete_message === 'yes' && $instant_delete != 'Y')
 		{
 			$output = $oCommentController->updateCommentByDelete($comment, $this->grant->manager);
-			$updateComment = true;
 			if($this->module_info->trash_use == 'Y')
 			{
-				$output = $oCommentController->moveCommentToTrash($comment, $updateComment);
+				$output = $oCommentController->moveCommentToTrash($comment, true);
 			}
 		}
 		elseif(starts_with('only_comm', $this->module_info->comment_delete_message) && $instant_delete != 'Y')
@@ -610,17 +636,16 @@ class boardController extends board
 			if(count($childs) > 0)
 			{
 				$output = $oCommentController->updateCommentByDelete($comment, $this->grant->manager);
-				$updateComment = true;
 				if($this->module_info->trash_use == 'Y')
 				{
-					$output = $oCommentController->moveCommentToTrash($comment, $updateComment);
+					$output = $oCommentController->moveCommentToTrash($comment, true);
 				}
 			}
 			else
 			{
 				if($this->module_info->trash_use == 'Y')
 				{
-					$output = $oCommentController->moveCommentToTrash($comment, $updateComment);
+					$output = $oCommentController->moveCommentToTrash($comment);
 				}
 				else
 				{
@@ -636,7 +661,7 @@ class boardController extends board
 		{
 			if($this->module_info->trash_use == 'Y')
 			{
-				$output = $oCommentController->moveCommentToTrash($comment, $this->module_info->comment_delete_message);
+				$output = $oCommentController->moveCommentToTrash($comment);
 			}
 			else
 			{
@@ -728,7 +753,7 @@ class boardController extends board
 	/**
 	 * @brief the trigger for displaying 'view document' link when click the user ID
 	 **/
-	function triggerMemberMenu(&$obj)
+	function triggerMemberMenu($obj)
 	{
 		if(!$mid = Context::get('cur_mid'))
 		{
@@ -737,9 +762,16 @@ class boardController extends board
 		
 		// get the module information
 		$module_info = ModuleModel::getModuleInfoByMid($mid);
-		if(empty($module_info->module) || $module_info->module !== 'board' || $module_info->use_anonymous === 'Y')
+		if (!$module_info || !isset($module_info->module) || $module_info->module !== 'board')
 		{
 			return;
+		}
+		if (($module_info->use_anonymous ?? 'N') === 'Y')
+		{
+			if (($module_info->anonymous_except_admin ?? 'N') !== 'Y' || !ModuleModel::isModuleAdmin($obj, $module_info->module_srl))
+			{
+				return;
+			}
 		}
 		
 		$url = getUrl('', 'mid', $mid, 'member_srl', $obj->member_srl);

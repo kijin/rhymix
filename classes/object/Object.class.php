@@ -6,6 +6,7 @@
  *
  * @author NAVER (developers@xpressengine.com)
  */
+#[AllowDynamicProperties]
 class BaseObject
 {
 	/**
@@ -322,14 +323,3 @@ class BaseObject
 		return $this->toBool();
 	}
 }
-
-/**
- * Alias to Object for backward compatibility.
- */
-if (version_compare(PHP_VERSION, '7.2', '<'))
-{
-	class_alias('BaseObject', 'Object');
-}
-
-/* End of file Object.class.php */
-/* Location: ./classes/object/Object.class.php */

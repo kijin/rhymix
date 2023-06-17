@@ -49,7 +49,7 @@ return array(
 	),
 	'url' => array(
 		'default' => null,
-		'unregistered_domain_action' => 'redirect_301',
+		'unregistered_domain_action' => 'display',
 		'http_port' => null,
 		'https_port' => null,
 		'ssl' => 'none',
@@ -112,11 +112,11 @@ return array(
 		'og_extract_description' => false,
 		'og_extract_images' => false,
 		'og_extract_hashtags' => false,
+		'og_use_nick_name' => false,
 		'og_use_timestamps' => false,
 	),
 	'mediafilter' => array(
-		'iframe' => array(),
-		'object' => array(),
+		'whitelist' => array(),
 		'classes' => array(),
 	),
 	'security' => array(

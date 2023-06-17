@@ -33,22 +33,50 @@ class memberController extends member
 			throw new Rhymix\Framework\Exception('null_user_id');
 		}
 
-		// Variables
-		if(!$user_id) $user_id = Context::get('user_id');
-		$user_id = trim($user_id);
+		$config = MemberModel::getMemberConfig();
 
-		if(!$password) $password = Context::get('password');
-		$password = trim($password);
+		// User ID, email address or phone number
+		if (!$user_id)
+		{
+			$user_id = trim(Context::get('user_id'));
+		}
+		if (!$user_id && $config->identifiers && in_array('email_address', $config->identifiers))
+		{
+			$user_id = trim(Context::get('email_address'));
+		}
+		if (!$user_id && $config->identifiers && in_array('phone_number', $config->identifiers))
+		{
+			$user_id = trim(Context::get('phone_number'));
+		}
+		if (!$user_id)
+		{
+			throw new Rhymix\Framework\Exception('null_user_id');
+		}
 
-		if(!$keep_signed) $keep_signed = Context::get('keep_signed');
-		// Return an error when id and password doesn't exist
-		if(!$user_id) throw new Rhymix\Framework\Exception('null_user_id');
-		if(!$password) throw new Rhymix\Framework\Exception('null_password');
+		// Password
+		if (!$password)
+		{
+			$password = trim(Context::get('password'));
+		}
+		if (!$password)
+		{
+			throw new Rhymix\Framework\Exception('null_password');
+		}
 
-		$output = $this->doLogin($user_id, $password, $keep_signed=='Y'?true:false);
-		if (!$output->toBool()) return $output;
+		// Autologin option
+		if (!$keep_signed)
+		{
+			$keep_signed = Context::get('keep_signed');
+		}
 
-		$config = ModuleModel::getModuleConfig('member');
+		// Attempt login
+		$output = $this->doLogin($user_id, $password, $keep_signed === 'Y' ? true : false);
+		if (!$output->toBool())
+		{
+			return $output;
+		}
+
+		// Get info of member who just logged in
 		$member_info = Context::get('logged_info');
 
 		// Check change_password_date
@@ -71,23 +99,7 @@ class memberController extends member
 		executeQuery('member.deleteAuthMail', $args);
 		
 		// If a device token is supplied, attempt to register it.
-		$device_token = Context::get('device_token');
-		if ($device_token)
-		{
-			$output = executeQuery('member.getMemberDevice', ['device_token' => $device_token]);
-			if (!$output->data || $output->data->member_srl != $member_info->member_srl)
-			{
-				$output = $this->procMemberRegisterDevice($member_info->member_srl);
-				if ($output instanceof BaseObject && !$output->toBool())
-				{
-					return $output;
-				}
-			}
-			else
-			{
-				executeQuery('member.updateMemberDeviceLastActiveDate', ['device_token' => $device_token]);
-			}
-		}
+		Rhymix\Modules\Member\Controllers\Device::getInstance()->autoRegisterDevice($member_info->member_srl);
 		
 		if(!$config->after_login_url)
 		{
@@ -98,172 +110,6 @@ class memberController extends member
 			$returnUrl = $config->after_login_url;
 		}
 		return $this->setRedirectUrl($returnUrl, $output);
-	}
-
-	/**
-	 * Register device
-	 */
-	function procMemberRegisterDevice($member_srl = null)
-	{
-		Context::setResponseMethod('JSON');
-
-		// Check user_id, password, device_token
-		$allow_guest_device = config('push.allow_guest_device');
-		$user_id = Context::get('user_id');
-		$password = Context::get('password');
-		$device_token = Context::get('device_token');
-		$device_model = escape(Context::get('device_model'));
-
-		// Return an error when id and password doesn't exist
-		if(!$member_srl && !$user_id && !$allow_guest_device) return new BaseObject(-1, 'NULL_USER_ID');
-		if(!$member_srl && !$password && !$allow_guest_device) return new BaseObject(-1, 'NULL_PASSWORD');
-		if(!$device_token) return new BaseObject(-1, 'NULL_DEVICE_TOKEN');
-
-		// Get device information
-		$browserInfo = Rhymix\Framework\UA::getBrowserInfo();
-		$device_type = escape(strtolower($browserInfo->os));
-		$device_version = $browserInfo->os_version;
-		if(!$device_model)
-		{
-			$device_model = escape($browserInfo->device);
-		}
-
-		// Detect device token type
-		if (preg_match('/^[0-9a-z]{64}$/', $device_token))
-		{
-			$device_token_type = 'apns';
-		}
-		elseif (preg_match('/^[0-9a-zA-Z:_-]+$/', $device_token) && strlen($device_token) > 64)
-		{
-			$device_token_type = 'fcm';
-		}
-		else
-		{
-			return new BaseObject(-1, 'INVALID_DEVICE_TOKEN');
-		}
-		
-		if ($member_srl)
-		{
-			$member_srl = intval($member_srl);
-		}
-		elseif ($user_id && $password)
-		{
-			$output = $this->procMemberLogin($user_id, $password);
-			if(!$output->toBool())
-			{
-				return new BaseObject(-1, 'LOGIN_FAILED');
-			}
-			$logged_info = Context::get('logged_info');
-			$member_srl = intval($logged_info->member_srl);
-		}
-		else
-		{
-			$logged_info = null;
-			$member_srl = 0;
-		}
-
-		// Generate keys
-		$random_key = Rhymix\Framework\Security::getRandom();
-		$device_key = hash_hmac('sha256', $random_key, $member_srl . ':' . config('crypto.authentication_key'));
-
-		// Prepare query arguments
-		$args = new stdClass;
-		$args->device_srl = getNextSequence();
-		$args->member_srl = $member_srl;
-		$args->device_token = $device_token;
-		$args->device_token_type = $device_token_type;
-		$args->device_key = $device_key;
-		$args->device_type = $device_type;
-		$args->device_version = $device_version;
-		$args->device_model = $device_model;
-		
-		// Call trigger (before)
-		$trigger_output = ModuleHandler::triggerCall('member.insertMemberDevice', 'before', $args);
-		if(!$trigger_output->toBool()) return $trigger_output;
-
-		// Start transaction
-		$oDB = DB::getInstance();
-		$oDB->begin();
-		
-		// Remove duplicated token key
-		executeQuery('member.deleteMemberDevice', ['device_token' => $device_token]);
-		
-		// Create member_device
-		$output = executeQuery('member.insertMemberDevice', $args);
-		if(!$output->toBool())
-		{
-			$oDB->rollback();
-			return $output;
-		}
-		
-		// Call trigger (after)
-		ModuleHandler::triggerCall('member.insertMemberDevice', 'after', $args);
-		
-		$oDB->commit();
-
-		// Set parameters
-		$this->add('member_srl', $member_srl);
-		$this->add('user_id', $logged_info ? $logged_info->user_id : null);
-		$this->add('user_name', $logged_info ? $logged_info->user_name : null);
-		$this->add('nick_name', $logged_info ? $logged_info->nick_name : null);
-		$this->add('device_key', $random_key);
-	}
-
-	/**
-	 * Automatically log-in to registered device
-	 */
-	function procMemberLoginWithDevice()
-	{
-		Context::setResponseMethod('JSON');
-
-		// Check member_srl, device_token, device_key
-		$allow_guest_device = config('push.allow_guest_device');
-		$member_srl = intval(Context::get('member_srl'));
-		$device_token = Context::get('device_token');
-		$random_key = Context::get('device_key');
-
-		// Return an error when id, password and device_key doesn't exist
-		if(!$member_srl && !$allow_guest_device) return new BaseObject(-1, 'NULL_MEMBER_SRL');
-		if(!$device_token) return new BaseObject(-1, 'NULL_DEVICE_TOKEN');
-		if(!$random_key) return new BaseObject(-1, 'NULL_DEVICE_KEY');
-
-		$args = new stdClass;
-		$args->member_srl = $member_srl;
-		$args->device_token = $device_token;
-		$args->device_key = hash_hmac('sha256', $random_key, $member_srl . ':' . config('crypto.authentication_key'));
-		$output = executeQueryArray('member.getMemberDevice', $args);
-		if(!$output->toBool())
-		{
-			return new BaseObject(-1, 'DEVICE_RETRIEVE_FAILED');
-		}
-
-		if(!$output->data)
-		{
-			return new BaseObject(-1, 'UNREGISTERED_DEVICE');
-		}
-
-		// Log-in
-		if($member_srl)
-		{
-			$member_info = MemberModel::getMemberInfoByMemberSrl($member_srl);
-			$output = $this->doLogin($member_info->user_id);
-			if(!$output->toBool())
-			{
-				return new BaseObject(-1, 'LOGIN_FAILED');
-			}
-		}
-		else
-		{
-			$member_info = null;
-		}
-		
-		// Update last active date
-		executeQuery('member.updateMemberDeviceLastActiveDate', ['device_token' => $device_token]);
-		
-		$this->add('member_srl', $member_srl);
-		$this->add('user_id', $member_info ? $member_info->user_id : null);
-		$this->add('user_name', $member_info ? $member_info->user_name : null);
-		$this->add('nick_name', $member_info ? $member_info->nick_name : null);
 	}
 
 	/**
@@ -386,7 +232,7 @@ class memberController extends member
 		// Call trigger (after)
 		ModuleHandler::triggerCall('member.procMemberScrapDocument', 'after', $args);
 		
-		$this->setError(-1);
+		//$this->setError(-1);
 		$this->setMessage('success_registed');
 	}
 
@@ -806,9 +652,10 @@ class memberController extends member
 		// Extract the necessary information in advance
 		$getVars = array();
 		$use_phone = false;
+		$oSocialData = SocialloginModel::getSocialSignUpUserData();
 		if($config->signupForm)
 		{
-			foreach($config->signupForm as $formInfo)
+			foreach($config->signupForm as $key => $formInfo)
 			{
 				if($formInfo->name === 'phone_number' && $formInfo->isUse)
 				{
@@ -817,6 +664,14 @@ class memberController extends member
 				if($formInfo->isUse || $formInfo->required || $formInfo->mustRequired)
 				{
 					$getVars[] = $formInfo->name;
+				}
+				
+				if($oSocialData)
+				{
+					if($formInfo->name == 'user_id')
+					{
+						unset($config->signupForm[$key]);
+					}
 				}
 			}
 		}
@@ -857,6 +712,14 @@ class memberController extends member
 		$args->allow_message = Context::get('allow_message');
 		if($args->password1) $args->password = $args->password1;
 		
+		/** @var SocialloginController $oSocialLoginController */
+		$oSocialLoginController = SocialloginController::getInstance();
+		if($oSocialData)
+		{
+			$args = $oSocialLoginController->replaceSignUpFormBySocial($args);
+			Context::set('password2', $args->password);
+		}
+
 		// Check all required fields
 		$output = $this->_checkSignUpFields($config, $args, 'insert');
 		if (!$output->toBool())
@@ -886,7 +749,7 @@ class memberController extends member
 		$extra_vars = new stdClass;
 		foreach($config->signupForm as $formInfo)
 		{
-			if (!$formInfo->isDefaultForm && isset($all_args->{$formInfo->name}))
+			if (!$formInfo->isDefaultForm)
 			{
 				$extra_vars->{$formInfo->name} = $all_args->{$formInfo->name};
 			}
@@ -979,15 +842,7 @@ class memberController extends member
 		}
 		
 		// Register device
-		$device_token = Context::get('device_token');
-		if ($device_token)
-		{
-			$output = executeQuery('member.getMemberDevice', ['device_token' => $device_token]);
-			if (!$output->data || $output->data->member_srl != $args->member_srl)
-			{
-				$this->procMemberRegisterDevice($args->member_srl);
-			}
-		}
+		Rhymix\Modules\Member\Controllers\Device::getInstance()->autoRegisterDevice($args->member_srl, false);
 
 		// Results
 		$this->add('member_srl', $args->member_srl);
@@ -1047,8 +902,7 @@ class memberController extends member
 		// Get information of logged-in user
 		$logged_info = Context::get('logged_info');
 		$member_srl = $logged_info->member_srl;
-		$columnList = array('member_srl', 'password');
-		$member_info = MemberModel::getMemberInfoByMemberSrl($member_srl, 0, $columnList);
+		$member_info = MemberModel::getMemberInfoByMemberSrl($member_srl);
 		
 		// Verify the current password
 		if(!MemberModel::isValidPassword($member_info->password, $password))
@@ -1157,23 +1011,24 @@ class memberController extends member
 		// Fill in member_srl
 		$args->member_srl = $logged_info->member_srl;
 
-		// Get list of extra vars
+		// Get existing extra vars
+		$output = executeQuery('member.getMemberInfoByMemberSrl', ['member_srl' => $args->member_srl], ['extra_vars']);
+		$extra_vars = ($output->data && $output->data->extra_vars) ? unserialize($output->data->extra_vars) : new stdClass;
+		foreach($this->nouse_extra_vars as $key)
+		{
+			unset($extra_vars->$key);
+		}
+		
+		// Update extra vars
 		$all_args = Context::getRequestVars();
-		$extra_vars = new stdClass;
 		foreach($config->signupForm as $formInfo)
 		{
-			if (!$formInfo->isDefaultForm && isset($all_args->{$formInfo->name}))
+			if (!$formInfo->isDefaultForm)
 			{
 				$extra_vars->{$formInfo->name} = $all_args->{$formInfo->name};
 			}
 		}
-		foreach($this->admin_extra_vars as $key)
-		{
-			if (isset($logged_info->{$key}))
-			{
-				$extra_vars->{$key} = $logged_info->{$key};
-			}
-		}
+
 		$args->extra_vars = serialize($extra_vars);
 
 		// remove whitespace
@@ -1261,19 +1116,40 @@ class memberController extends member
 		if(!Context::get('is_logged')) throw new Rhymix\Framework\Exceptions\MustLogin;
 		// Extract the necessary information in advance
 		$current_password = trim(Context::get('current_password'));
+		
 		$password = trim(Context::get('password1'));
+		$password2 = trim(Context::get('password2'));
+		
+		if($password === '' || $password2 === '')
+		{
+			throw new \Rhymix\Framework\Exception('msg_need_input_password');
+		}
+		
+		if($password !== $password2)
+		{
+			throw new \Rhymix\Framework\Exception('msg_not_equal_password');
+		}
+		
 		// Get information of logged-in user
-		$logged_info = Context::get('logged_info');
-		$member_srl = $logged_info->member_srl;
-		// Get information of member_srl
-		$columnList = array('member_srl', 'password');
-
-		$member_info = MemberModel::getMemberInfoByMemberSrl($member_srl, 0, $columnList);
+		$member_srl = Context::get('logged_info')->member_srl;
+		$member_info = MemberModel::getMemberInfoByMemberSrl($member_srl);
+		
 		// Verify the cuttent password
-		if(!MemberModel::isValidPassword($member_info->password, $current_password, $member_srl)) throw new Rhymix\Framework\Exception('invalid_password');
-
+		if($_SESSION['rechecked_password_modify'] != 'VALIDATE_PASSWORD')
+		{
+			if($current_password === '')
+			{
+				throw new \Rhymix\Framework\Exception('msg_need_current_password');
+			}
+			
+			if(!MemberModel::isValidPassword($member_info->password, $current_password, $member_srl))
+			{
+				throw new Rhymix\Framework\Exception('invalid_password');
+			}
+		}
+		
 		// Check if a new password is as same as the previous password
-		if($current_password == $password) throw new Rhymix\Framework\Exception('invalid_new_password');
+		if($current_password === $password) throw new Rhymix\Framework\Exception('invalid_new_password');
 
 		// Execute insert or update depending on the value of member_srl
 		$args = new stdClass;
@@ -1281,6 +1157,8 @@ class memberController extends member
 		$args->password = $password;
 		$output = $this->updateMemberPassword($args);
 		if(!$output->toBool()) return $output;
+
+		unset($_SESSION['rechecked_password_modify']);
 		
 		// Log out all other sessions.
 		$member_config = ModuleModel::getModuleConfig('member');
@@ -1309,9 +1187,7 @@ class memberController extends member
 		// Get information of logged-in user
 		$logged_info = Context::get('logged_info');
 		$member_srl = $logged_info->member_srl;
-		// Get information of member_srl
-		$columnList = array('member_srl', 'password');
-		$member_info = MemberModel::getMemberInfoByMemberSrl($member_srl, 0, $columnList);
+		$member_info = MemberModel::getMemberInfoByMemberSrl($member_srl);
 		// Verify the cuttent password
 		if(!MemberModel::isValidPassword($member_info->password, $password)) throw new Rhymix\Framework\Exception('invalid_password');
 
@@ -1358,7 +1234,7 @@ class memberController extends member
 	 * Insert a profile image
 	 *
 	 * @param int $member_srl
-	 * @param object $target_file
+	 * @param string $target_file
 	 *
 	 * @return void
 	 */
@@ -1385,14 +1261,27 @@ class memberController extends member
 		}
 
 		$target_path = sprintf('files/member_extra_info/profile_image/%s', getNumberingPath($member_srl));
+		$target_filename = sprintf('%s%d.%s', $target_path, $member_srl, $ext);
 		FileHandler::makeDir($target_path);
 
-		$target_filename = sprintf('%s%d.%s', $target_path, $member_srl, $ext);
 		// Convert if the image size is larger than a given size
-		if($width > $max_width || $height > $max_height)
+		if ($width > $max_width || $height > $max_height)
+		{
+			$resize = true;
+		}
+		elseif ($config->profile_image_force_ratio !== 'N' && ($width / $height !== $max_width / $max_height))
+		{
+			$resize = true;
+		}
+		else
+		{
+			$resize = false;
+		}
+		
+		if ($resize)
 		{
 			$temp_filename = sprintf('files/cache/tmp/profile_image_%d.%s', $member_srl, $ext);
-			FileHandler::createImageFile($target_file, $temp_filename, $max_width, $max_height, $ext);
+			FileHandler::createImageFile($target_file, $temp_filename, $max_width, $max_height, $ext, 'fill', 75);
 
 			// 파일 용량 제한
 			FileHandler::clearStatCache($temp_filename);
@@ -1408,7 +1297,6 @@ class memberController extends member
 
 			FileHandler::removeFilesInDir($target_path);
 			FileHandler::moveFile($temp_filename, $target_filename);
-			FileHandler::clearStatCache($target_filename);
 		}
 		else
 		{
@@ -1424,9 +1312,14 @@ class memberController extends member
 
 			FileHandler::removeFilesInDir($target_path);
 			@copy($target_file, $target_filename);
-			FileHandler::clearStatCache($target_filename);
 		}
 
+		// Clear cache
+		foreach (['jpg', 'jpeg', 'gif', 'png'] as $ext)
+		{
+			clearstatcache(true, \RX_BASEDIR . sprintf('files/member_extra_info/profile_image/%s%d.%s', getNumberingPath($member_srl), $member_srl, $ext));
+		}
+		self::clearMemberCache($member_srl);
 		return new BaseObject(0, 'success');
 	}
 
@@ -1506,7 +1399,6 @@ class memberController extends member
 
 			FileHandler::removeFilesInDir($target_path);
 			FileHandler::moveFile($temp_filename, $target_filename);
-			FileHandler::clearStatCache($target_filename);
 		}
 		else
 		{
@@ -1522,9 +1414,11 @@ class memberController extends member
 
 			FileHandler::removeFilesInDir($target_path);
 			@copy($target_file, $target_filename);
-			FileHandler::clearStatCache($target_filename);
+			
 		}
 
+		clearstatcache(true, $target_filename);
+		self::clearMemberCache($member_srl);
 		return new BaseObject(0, 'success');
 	}
 
@@ -1548,6 +1442,7 @@ class memberController extends member
 			$profile_image = MemberModel::getProfileImage($member_srl);
 			FileHandler::removeFile($profile_image->file);
 			Rhymix\Framework\Storage::deleteEmptyDirectory(dirname(FileHandler::getRealPath($profile_image->file)), true);
+			FileHandler::clearStatCache($profile_image->file);
 			self::clearMemberCache($member_srl);
 		}
 		return new BaseObject(0,'success');
@@ -1573,6 +1468,8 @@ class memberController extends member
 			$image_name = MemberModel::getImageName($member_srl);
 			FileHandler::removeFile($image_name->file);
 			Rhymix\Framework\Storage::deleteEmptyDirectory(dirname(FileHandler::getRealPath($image_name->file)), true);
+			FileHandler::clearStatCache($profile_image->file);
+			self::clearMemberCache($member_srl);
 		}
 		return new BaseObject(0,'success');
 	}
@@ -1649,7 +1546,6 @@ class memberController extends member
 
 			FileHandler::removeFilesInDir($target_path);
 			FileHandler::moveFile($temp_filename, $target_filename);
-			FileHandler::clearStatCache($target_filename);
 		}
 		else
 		{
@@ -1665,9 +1561,10 @@ class memberController extends member
 
 			FileHandler::removeFilesInDir($target_path);
 			@copy($target_file, $target_filename);
-			FileHandler::clearStatCache($target_filename);
 		}
 
+		clearstatcache(true, $target_filename);
+		self::clearMemberCache($member_srl);
 		return new BaseObject(0, 'success');
 	}
 
@@ -1691,6 +1588,8 @@ class memberController extends member
 			$image_mark = MemberModel::getImageMark($member_srl);
 			FileHandler::removeFile($image_mark->file);
 			Rhymix\Framework\Storage::deleteEmptyDirectory(dirname(FileHandler::getRealPath($image_mark->file)), true);
+			FileHandler::clearStatCache($profile_image->file);
+			self::clearMemberCache($member_srl);
 		}
 		return new BaseObject(0,'success');
 	}
@@ -1707,11 +1606,14 @@ class memberController extends member
 
 		// Check if a member having the same email address exists
 		$member_srl = MemberModel::getMemberSrlByEmailAddress($email_address);
-		if(!$member_srl) throw new Rhymix\Framework\Exception('msg_email_not_exists');
+		if(!$member_srl) throw new Rhymix\Framework\Exception('msg_not_exists_member');
 
 		// Get information of the member
-		$columnList = array('denied', 'member_srl', 'user_id', 'user_name', 'email_address', 'nick_name');
-		$member_info = MemberModel::getMemberInfoByMemberSrl($member_srl, 0, $columnList);
+		$member_info = MemberModel::getMemberInfoByMemberSrl($member_srl);
+		if(!$member_info || !$member_info->member_srl)
+		{
+			throw new Rhymix\Framework\Exception('msg_not_exists_member');
+		}
 
 		// Check if possible to find member's ID and password
 		if($member_info->denied == 'Y')
@@ -1909,8 +1811,7 @@ class memberController extends member
 			throw new Rhymix\Framework\Exception('msg_not_exists_member');
 		}
 
-		$columnList = array('member_srl', 'user_id', 'user_name', 'nick_name', 'email_address');
-		$member_info = MemberModel::getMemberInfoByMemberSrl($member_srl, 0, $columnList);
+		$member_info = MemberModel::getMemberInfoByMemberSrl($member_srl);
 		if(!$member_info || !$member_info->member_srl)
 		{
 			throw new Rhymix\Framework\Exception('msg_not_exists_member');
@@ -2073,36 +1974,12 @@ class memberController extends member
 	/**
 	 * Save the member configurations
 	 *
-	 * @param object $args
-	 *
+	 * @deprecated
 	 * @return void
 	 */
 	function setMemberConfig($args)
 	{
-		if(!$args->skin) $args->skin = "default";
-		if(!$args->colorset) $args->colorset = "white";
-		if(!$args->editor_skin) $args->editor_skin= "ckeditor";
-		if(!$args->editor_colorset) $args->editor_colorset = "moono-lisa";
-		if($args->enable_join!='Y') $args->enable_join = 'N';
-		$args->enable_openid= 'N';
-		if($args->profile_image !='Y') $args->profile_image = 'N';
-		if($args->image_name!='Y') $args->image_name = 'N';
-		if($args->image_mark!='Y') $args->image_mark = 'N';
-		if($args->group_image_mark!='Y') $args->group_image_mark = 'N';
-		if(!trim(strip_tags($args->agreement))) $args->agreement = null;
-		$args->limit_day = (int)$args->limit_day;
-
-		$agreement = trim($args->agreement);
-		unset($args->agreement);
-
-		$oModuleController = getController('module');
-		$output = $oModuleController->insertModuleConfig('member',$args);
-		if(!$output->toBool()) return $output;
-
-		$agreement_file = RX_BASEDIR.'files/member_extra_info/agreement.txt';
-		FileHandler::writeFile($agreement_file, $agreement);
-
-		return new BaseObject();
+		return getController('module')->updateModuleConfig('member', $args);
 	}
 
 	/**
@@ -2132,10 +2009,12 @@ class memberController extends member
 		$obj->editor_skin = $config->signature_editor_skin;
 		$signature = getModel('editor')->converter($obj);
 		
-		$filename = sprintf('files/member_extra_info/signature/%s%d.signature.php', getNumberingPath($member_srl), $member_srl);
+		$filename = RX_BASEDIR . sprintf('files/member_extra_info/signature/%s%d.signature.php', getNumberingPath($member_srl), $member_srl);
 		$buff = sprintf('<?php if(!defined("__XE__")) exit();?>%s', $signature);
 		Rhymix\Framework\Storage::write($filename, $buff);
+		clearstatcache(true, $filename);
 		
+		self::clearMemberCache($member_srl);
 		return $signature;
 	}
 
@@ -2149,8 +2028,11 @@ class memberController extends member
 	function delSignature($member_srl)
 	{
 		$dirname = RX_BASEDIR . sprintf('files/member_extra_info/signature/%s', getNumberingPath($member_srl));
-		Rhymix\Framework\Storage::deleteDirectory($dirname, false);
+		$filename = sprintf('%s%d.signature.php', $dirname, $member_srl);
+		Rhymix\Framework\Storage::delete($filename);
 		Rhymix\Framework\Storage::deleteEmptyDirectory($dirname, true);
+		clearstatcache(true, $filename);
+		self::clearMemberCache($member_srl);
 	}
 
 	/**
@@ -2163,9 +2045,21 @@ class memberController extends member
 	 */
 	function addMemberToGroup($member_srl, $group_srl)
 	{
+		// Return if member already belongs to group
 		$args = new stdClass();
 		$args->member_srl = $member_srl;
 		$args->group_srl = $group_srl;
+		$output = executeQueryArray('member.getMemberGroupMember', $args);
+		if ($output->data && count($output->data) == 1)
+		{
+			return $output;
+		}
+		if ($output->data && count($output->data) > 1)
+		{
+			executeQuery('member.deleteMemberGroupMember', $args);
+		}
+		
+		// Add member to group
 		$output = executeQuery('member.addMemberToGroup', $args);
 		
 		ModuleHandler::triggerCall('member.addMemberToGroup', 'after', $args);
@@ -2312,7 +2206,7 @@ class memberController extends member
 		if((!$config->identifiers || in_array('email_address', $config->identifiers)) && strpos($user_id, '@') !== false)
 		{
 			$member_info = MemberModel::getMemberInfoByEmailAddress($user_id);
-			if(!$user_id || strtolower($member_info->email_address) !== strtolower($user_id))
+			if(!$member_info || strtolower($member_info->email_address) !== strtolower($user_id))
 			{
 				return $this->recordLoginError(-1, 'invalid_email_address');
 			}
@@ -2345,7 +2239,7 @@ class memberController extends member
 			
 			$user_id = preg_replace('/[^0-9]/', '', $user_id);
 			$member_info = MemberModel::getMemberInfoByPhoneNumber($user_id, $phone_country);
-			if(!$user_id || strtolower($member_info->phone_number) !== $user_id)
+			if(!$member_info || strtolower($member_info->phone_number) !== $user_id)
 			{
 				return $this->recordLoginError(-1, 'invalid_user_id');
 			}
@@ -2353,7 +2247,7 @@ class memberController extends member
 		elseif(!$config->identifiers || in_array('user_id', $config->identifiers))
 		{
 			$member_info = MemberModel::getMemberInfoByUserID($user_id);
-			if(!$user_id || strtolower($member_info->user_id) !== strtolower($user_id))
+			if(!$member_info || strtolower($member_info->user_id) !== strtolower($user_id))
 			{
 				return $this->recordLoginError(-1, 'invalid_user_id');
 			}
@@ -2450,7 +2344,7 @@ class memberController extends member
 
 					//send message
 					$oCommunicationController = getController('communication');
-					$oCommunicationController->sendMessage($args->member_srl, $args->member_srl, $title, $content, true);
+					$oCommunicationController->sendMessage($args->member_srl, $args->member_srl, $title, $content, true, null, false);
 
 					if($member_info->email_address && $member_info->allow_mailing == 'Y')
 					{
@@ -2565,7 +2459,7 @@ class memberController extends member
 	/**
 	 * Nickname and click Log In to add a pop-up menu that appears when the method
 	 */
-	function addMemberPopupMenu($url, $str, $icon = '', $target = 'self', $class = '')
+	function addMemberPopupMenu($url, $str, $icon = '', $target = '_blank', $class = '')
 	{
 		$member_popup_menu_list = Context::get('member_popup_menu_list');
 		if(!is_array($member_popup_menu_list)) $member_popup_menu_list = array();
@@ -2860,8 +2754,11 @@ class memberController extends member
 		
 		ModuleHandler::triggerCall('member.insertMember', 'after', $args);
 
-		$oDB->commit(true);
-
+		$oDB->commit();
+		
+		// Remove from cache
+		self::clearMemberCache($args->member_srl);
+		
 		$output->add('member_srl', $args->member_srl);
 		return $output;
 	}
@@ -3167,7 +3064,6 @@ class memberController extends member
 		$oDB->commit();
 
 		// Remove from cache
-		unset($GLOBALS['__member_info__'][$args->member_srl]);
 		self::clearMemberCache($args->member_srl);
 
 		$output->add('member_srl', $args->member_srl);
@@ -3202,7 +3098,6 @@ class memberController extends member
 			return $output;
 		}
 		
-		unset($GLOBALS['__member_info__'][$member_srl]);
 		self::clearMemberCache($member_srl);
 
 		return $output;
@@ -3237,7 +3132,6 @@ class memberController extends member
 			$result = executeQuery('member.updateChangePasswordDate', $args);
 		}
 
-		unset($GLOBALS['__member_info__'][$args->member_srl]);
 		self::clearMemberCache($args->member_srl);
 
 		return $output;
@@ -3252,15 +3146,25 @@ class memberController extends member
 		$trigger_obj = new stdClass();
 		$trigger_obj->member_srl = $member_srl;
 		$output = ModuleHandler::triggerCall('member.deleteMember', 'before', $trigger_obj);
-		if(!$output->toBool()) return $output;
+		if (!$output->toBool())
+		{
+			return $output;
+		}
+		
 		// Bringing the user's information
-		$columnList = array('member_srl', 'is_admin');
-		$member_info = MemberModel::getMemberInfoByMemberSrl($member_srl, 0, $columnList);
-		if(!$member_info) return new BaseObject(-1, 'msg_not_exists_member');
+		$member_info = MemberModel::getMemberInfoByMemberSrl($member_srl);
+		if (!$member_info || !$member_info->member_srl)
+		{
+			return new BaseObject(-1, 'msg_not_exists_member');
+		}
+		
 		// If managers can not be deleted
-		if($member_info->is_admin == 'Y') return new BaseObject(-1, 'msg_cannot_delete_admin');
+		if ($member_info->is_admin == 'Y')
+		{
+			return new BaseObject(-1, 'msg_cannot_delete_admin');
+		}
 
-		$oDB = &DB::getInstance();
+		$oDB = DB::getInstance();
 		$oDB->begin();
 
 		$args = new stdClass();
@@ -3370,10 +3274,17 @@ class memberController extends member
 	{
 		if(!Context::get('is_logged')) throw new Rhymix\Framework\Exceptions\MustLogin;
 
+		if($_SESSION['rechecked_password_step'] != 'INPUT_DATA')
+		{
+			throw new Rhymix\Framework\Exceptions\InvalidRequest;
+		}
+
 		$member_info = Context::get('logged_info');
 		$newEmail = Context::get('email_address');
-
-		if(!$newEmail) throw new Rhymix\Framework\Exceptions\InvalidRequest;
+		if(!$newEmail)
+		{
+			throw new Rhymix\Framework\Exceptions\InvalidRequest;
+		}
 
 		// Check managed Email Host
 		if(MemberModel::isDeniedEmailHost($newEmail))
@@ -3395,24 +3306,15 @@ class memberController extends member
 		$member_srl = MemberModel::getMemberSrlByEmailAddress($newEmail);
 		if($member_srl) throw new Rhymix\Framework\Exception('msg_exists_email_address');
 
-		if($_SESSION['rechecked_password_step'] != 'INPUT_DATA')
-		{
-			throw new Rhymix\Framework\Exceptions\InvalidRequest;
-		}
-		unset($_SESSION['rechecked_password_step']);
-
 		$auth_args = new stdClass();
 		$auth_args->user_id = $newEmail;
 		$auth_args->member_srl = $member_info->member_srl;
 		$auth_args->auth_key = Rhymix\Framework\Security::getRandom(40, 'hex');
 		$auth_args->new_password = 'XE_change_emaill_address';
 
-		$oDB = &DB::getInstance();
-		$oDB->begin();
 		$output = executeQuery('member.insertAuthMail', $auth_args);
 		if(!$output->toBool())
 		{
-			$oDB->rollback();
 			return $output;
 		}
 
@@ -3421,14 +3323,11 @@ class memberController extends member
 		$tpl_path = sprintf('%sskins/%s', $this->module_path, $member_config->skin);
 		if(!is_dir($tpl_path)) $tpl_path = sprintf('%sskins/%s', $this->module_path, 'default');
 
-		global $lang;
-
 		$memberInfo = array();
-		$memberInfo[$lang->email_address] = $member_info->email_address;
-		$memberInfo[$lang->nick_name] = $member_info->nick_name;
+		$memberInfo[lang('email_address')] = $member_info->email_address;
+		$memberInfo[lang('nick_name')] = $member_info->nick_name;
 
 		Context::set('memberInfo', $memberInfo);
-
 		Context::set('newEmail', $newEmail);
 
 		$auth_url = getFullUrl('','module','member','act','procMemberAuthEmailAddress','member_srl',$member_info->member_srl, 'auth_key',$auth_args->auth_key);
@@ -3442,6 +3341,8 @@ class memberController extends member
 		$oMail->setBody($content);
 		$oMail->addTo($newEmail, $member_info->nick_name);
 		$oMail->send();
+
+		unset($_SESSION['rechecked_password_step']);
 
 		$msg = sprintf(lang('msg_confirm_mail_sent'), $newEmail);
 		$this->setMessage($msg);
@@ -3527,6 +3428,33 @@ class memberController extends member
 		}
 		
 		$is_special = ($config->special_phone_number && $config->special_phone_number === preg_replace('/[^0-9]/', '', $phone_number));
+		
+		// Check if SMS has already been sent
+		if (!$is_special)
+		{
+			$args = new stdClass;
+			$args->phone_number = $phone_number;
+			$args->phone_country = $phone_country;
+			$args->ipaddress = \RX_CLIENT_IP;
+			$args->regdate_since = date('YmdHis', time() - ($config->max_auth_sms_count_time ?: 600));
+			$output = executeQuery('member.chkAuthSms', $args);
+			if ($output->data->count >= ($config->max_auth_sms_count ?: 5))
+			{
+				return new BaseObject(-1, 'msg_auth_sms_rate_limited');
+			}
+		}
+		
+		// Check if phone number is duplicate
+		if (!$is_special && $config->phone_number_allow_duplicate !== 'Y')
+		{
+			$member_srl = MemberModel::getMemberSrlByPhoneNumber($phone_number, $phone_country);
+			if($member_srl)
+			{
+				return new BaseObject(-1, 'msg_exists_phone_number');
+			}
+		}
+		
+		// Generate code and store in session
 		$code = intval(mt_rand(100000, 999999));
 		$_SESSION['verify_by_sms'] = array(
 			'country' => $phone_country,
@@ -3534,6 +3462,14 @@ class memberController extends member
 			'code' => $is_special ? intval($config->special_phone_code) : $code,
 			'status' => false,
 		);
+		
+		// Store in DB
+		$args = new stdClass;
+		$args->member_srl = $this->user->member_srl ?: 0;
+		$args->phone_number = $phone_number;
+		$args->phone_country = $phone_country;
+		$args->code = $is_special ? intval($config->special_phone_code) : $code;
+		executeQuery('member.insertAuthSms', $args);
 		
 		if ($is_special)
 		{
@@ -3577,35 +3513,6 @@ class memberController extends member
 		
 		$_SESSION['verify_by_sms']['status'] = true;
 		return new BaseObject(0, 'verify_by_sms_code_confirmed');
-	}
-	
-	/**
-	 * Delete a registered device.
-	 */
-	public function procMemberDeleteDevice()
-	{
-		$device_srl = intval(Context::get('device_srl'));
-		$logged_info = Context::get('logged_info');
-		
-		$args = new stdClass;
-		$args->device_srl = $device_srl;
-		$output = executeQuery('member.getMemberDevice', $args);
-		if (!$output->data || !is_object($output->data))
-		{
-			throw new Rhymix\Framework\Exceptions\TargetNotFound;
-		}
-		if (!$output->data->member_srl || $output->data->member_srl != $logged_info->member_srl)
-		{
-			throw new Rhymix\Framework\Exceptions\TargetNotFound;
-		}
-		
-		$args = new stdClass;
-		$args->device_token = $output->data->device_token;
-		$output = executeQuery('member.deleteMemberDevice', $args);
-		if (!$output->toBool())
-		{
-			return $output;
-		}
 	}
 
 	/**
@@ -3676,9 +3583,7 @@ class memberController extends member
 		$module_srl = Context::get('module_srl');
 		$cnt_loop = Context::get('cnt_loop');
 		$proc_type = Context::get('proc_type');
-		$isMoveToTrash = true;
-		if($proc_type == "delete")
-			$isMoveToTrash = false;
+		$isMoveToTrash = ($proc_type !== 'delete') ? true : false;
 
 		// check grant
 		$columnList = array('module_srl', 'module');
@@ -3686,8 +3591,6 @@ class memberController extends member
 		$grant = ModuleModel::getGrant($module_info, $logged_info);
 
 		if(!$grant->manager) throw new Rhymix\Framework\Exceptions\NotPermitted;
-
-		$proc_msg = "";
 
 		// delete or trash destination
 		// proc member
@@ -3733,13 +3636,10 @@ class memberController extends member
 		$logged_info = Context::get('logged_info');
 		$spam_description = trim( Context::get('spam_description') );
 
-		$columnList = array('member_srl', 'email_address', 'user_id', 'nick_name', 'description');
 		// get member current infomation
-		$member_info = MemberModel::getMemberInfoByMemberSrl($member_srl, 0, $columnList);
-
+		$member_info = MemberModel::getMemberInfoByMemberSrl($member_srl);
 		$cnt_comment = CommentModel::getCommentCountByMemberSrl($member_srl);
 		$cnt_document = DocumentModel::getDocumentCountByMemberSrl($member_srl);
-		$total_count = $cnt_comment + $cnt_document;
 
 		$args = new stdClass();
 		$args->member_srl = $member_info->member_srl;
@@ -3747,10 +3647,15 @@ class memberController extends member
 		$args->user_id = $member_info->user_id;
 		$args->nick_name = $member_info->nick_name;
 		$args->denied = "Y";
-		$args->description = trim( $member_info->description );
-		if( $args->description != "" ) $args->description .= "\n";	// add new line
-
-		$args->description .= lang('cmd_spammer') . "[" . date("Y-m-d H:i:s") . " from:" . $logged_info->user_id . " info:" . $spam_description . " docuemnts count:" . $total_count . "]";
+		$args->description = trim(vsprintf("%s\n%s [%s %s]\ninfo: %s\ndocuments: %d\ncomments: %d]", [
+			trim($member_info->description),
+			lang('cmd_spammer'),
+			date("Y-m-d H:i:s"),
+			$logged_info->nick_name,
+			$spam_description,
+			$cnt_document,
+			$cnt_comment,
+		]));
 
 		$output = $this->updateMember($args, true);
 
@@ -3767,7 +3672,7 @@ class memberController extends member
 	 *
 	 * @return object
 	**/
-	protected function _spammerDocuments($member_srl, $isMoveToTrash)
+	protected function _spammerDocuments($member_srl, $isMoveToTrash = true)
 	{
 		$oDocumentController = getController('document');
 		$oCommentController = getController('comment');
@@ -3784,7 +3689,14 @@ class memberController extends member
 			$commentList = CommentModel::getCommentListByMemberSrl($member_srl, $columnList, 0, false, $getContentsCount);
 			if($commentList) {
 				foreach($commentList as $v) {
-					$oCommentController->deleteComment($v->comment_srl, true, $isMoveToTrash);
+					if($isMoveToTrash)
+					{
+						$oCommentController->moveCommentToTrash($v);
+					}
+					else
+					{
+						$oCommentController->deleteComment($v->comment_srl, true);
+					}
 				}
 			}
 		} elseif($cnt_document > 0) {
@@ -3792,8 +3704,14 @@ class memberController extends member
 			$documentList = DocumentModel::getDocumentListByMemberSrl($member_srl, $columnList, 0, false, $getContentsCount);
 			if($documentList) {
 				foreach($documentList as $v) {
-					if($isMoveToTrash) $oDocumentController->moveDocumentToTrash($v);
-					else $oDocumentController->deleteDocument($v->document_srl);
+					if($isMoveToTrash)
+					{
+						$oDocumentController->moveDocumentToTrash($v);
+					}
+					else
+					{
+						$oDocumentController->deleteDocument($v->document_srl, true);
+					}
 				}
 			}
 		}
@@ -3813,7 +3731,6 @@ class memberController extends member
 	{
 		$not_required_if_indirect_insert = ['user_id'];
 		$not_required_in_update = ['password'];
-		
 		foreach($config->signupForm as $formInfo)
 		{
 			if($formInfo->isUse && ($formInfo->required || $formInfo->mustRequired))
@@ -3822,7 +3739,7 @@ class memberController extends member
 				{
 					// pass
 				}
-				elseif (!isset($args->{$formInfo->name}) || trim($args->{$formInfo->name} ?? '') === '')
+				elseif (!isset($args->{$formInfo->name}) || $this->_checkEmpty($args->{$formInfo->name} ?? '', $formInfo->type ?? ''))
 				{
 					if (in_array($formInfo->name, $not_required_if_indirect_insert) && !preg_match('/^procMember.+/i', Context::get('act')))
 					{
@@ -3919,6 +3836,30 @@ class memberController extends member
 	}
 	
 	/**
+	 * Check if a variable is empty.
+	 * 
+	 * @param mixed $var
+	 * @param string $type
+	 * @return bool
+	 */
+	protected function _checkEmpty($var, $type = '')
+	{
+		if ($type === 'tel' || $type === 'kr_zip')
+		{
+			$condition = (is_array($var) && count($var) >= 3 && trim($var[0]) !== '' && trim($var[1]) !== '' && trim($var[2]) !== '');
+			return !$condition;
+		}
+		elseif (is_array($var))
+		{
+			return implode('', array_map('trim', $var)) === '';
+		}
+		else
+		{
+			return trim(strval($var)) === '';
+		}
+	}
+	
+	/**
 	 * @deprecated
 	 * @return void
 	 */
@@ -3941,6 +3882,11 @@ class memberController extends member
 		Rhymix\Framework\Cache::delete("site_and_module:accessible_modules:$member_srl");
 		unset($GLOBALS['__member_info__'][$member_srl]);
 		unset($GLOBALS['__member_groups__'][$member_srl]);
+		unset($GLOBALS['__member_info__']['profile_image'][$member_srl]);
+		unset($GLOBALS['__member_info__']['image_name'][$member_srl]);
+		unset($GLOBALS['__member_info__']['image_mark'][$member_srl]);
+		unset($GLOBALS['__member_info__']['group_image_mark'][$member_srl]);
+		unset($GLOBALS['__member_info__']['signature'][$member_srl]);
 	}
 }
 /* End of file member.controller.php */

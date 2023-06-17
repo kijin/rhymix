@@ -23,18 +23,10 @@ class boardView extends board
 		/**
 		 * setup the module general information
 		 **/
-		if($this->module_info->list_count)
-		{
-			$this->list_count = $this->module_info->list_count;
-		}
-		if($this->module_info->search_list_count)
-		{
-			$this->search_list_count = $this->module_info->search_list_count;
-		}
-		if($this->module_info->page_count)
-		{
-			$this->page_count = $this->module_info->page_count;
-		}
+		$m = Context::get('m');
+		$this->list_count = $m ? ($this->module_info->mobile_list_count ?? 20) : ($this->module_info->list_count ?? 20);
+		$this->search_list_count = $m ? ($this->module_info->mobile_search_list_count ?? 20) : ($this->module_info->search_list_count ?? 20);
+		$this->page_count = $m ? ($this->module_info->mobile_page_count ?? 5) : ($this->module_info->page_count ?? 10);
 		$this->except_notice = ($this->module_info->except_notice ?? '') == 'N' ? FALSE : TRUE;
 		$this->include_modules = ($this->module_info->include_modules ?? []) ? explode(',', $this->module_info->include_modules) : [];
 		if (count($this->include_modules) && !in_array($this->module_info->module_srl, $this->include_modules))
@@ -53,11 +45,11 @@ class boardView extends board
 		$count_category = count(DocumentModel::getCategoryList($this->module_info->module_srl));
 		if($count_category)
 		{
-			if($this->module_info->hide_category)
+			if(isset($this->module_info->hide_category))
 			{
 				$this->module_info->use_category = ($this->module_info->hide_category == 'Y') ? 'N' : 'Y';
 			}
-			else if($this->module_info->use_category)
+			elseif(isset($this->module_info->use_category))
 			{
 				$this->module_info->hide_category = ($this->module_info->use_category == 'Y') ? 'N' : 'Y';
 			}
@@ -347,7 +339,7 @@ class boardView extends board
 		Context::set('update_view', $this->grant->update_view);
 
 		// setup the document oject on context
-		$oDocument->add('module_srl', $this->module_srl);
+		$oDocument->add('apparent_module_srl', $this->module_srl);
 		Context::set('oDocument', $oDocument);
 
 		/**
@@ -473,7 +465,8 @@ class boardView extends board
 			$args->module_srl = $this->include_modules ?: $this->module_srl;
 		}
 		$output = DocumentModel::getNoticeList($args, $this->columnList);
-		$notice_list = $output->data;
+		$notice_list = $output->data ?? [];
+		
 		$this->_fillModuleTitles($notice_list);
 		Context::set('notice_list', $notice_list);
 	}
@@ -628,6 +621,7 @@ class boardView extends board
 				$module_srl = $document->get('module_srl');
 				if ($document->get('mid') === null)
 				{
+					$document->add('apparent_module_srl', $this->module_info->module_srl);
 					$document->add('module_title', isset($map[$module_srl]) ? $map[$module_srl]->browser_title : $this->module_info->browser_title);
 					$document->add('mid', isset($map[$module_srl]) ? $map[$module_srl]->mid : $this->module_info->mid);
 				}
@@ -648,32 +642,48 @@ class boardView extends board
 
 	function _makeListColumnList()
 	{
-		$configColumList = array_keys($this->listConfig);
-		$tableColumnList = array('document_srl', 'module_srl', 'category_srl', 'lang_code', 'is_notice',
-				'title', 'title_bold', 'title_color', 'content', 'readed_count', 'voted_count',
-				'blamed_count', 'comment_count', 'trackback_count', 'uploaded_count', 'password', 'user_id',
-				'user_name', 'nick_name', 'member_srl', 'email_address', 'homepage', 'tags', 'extra_vars',
-				'regdate', 'last_update', 'last_updater', 'ipaddress', 'list_order', 'update_order',
-				'allow_trackback', 'notify_message', 'status', 'comment_status');
-		$this->columnList = array_intersect($configColumList, $tableColumnList);
-
-		if(in_array('summary', $configColumList)) array_push($this->columnList, 'content');
-
-		// default column list add
-		$defaultColumn = array('document_srl', 'module_srl', 'category_srl', 'lang_code', 'is_notice', 'member_srl', 'last_update', 'comment_count', 'trackback_count', 'uploaded_count', 'status', 'regdate', 'title_bold', 'title_color');
-
-		//TODO guestbook, blog style supports legacy codes.
+		// List of all available columns
+		$allColumnList = array(
+			'document_srl', 'module_srl', 'category_srl', 'lang_code', 'is_notice',
+			'title', 'title_bold', 'title_color', 'content',
+			'readed_count', 'voted_count', 'blamed_count', 'comment_count', 'trackback_count', 'uploaded_count',
+			'password', 'user_id', 'user_name', 'nick_name', 'member_srl', 'email_address', 'homepage', 'tags', 'extra_vars',
+			'regdate', 'last_update', 'last_updater', 'ipaddress', 'list_order', 'update_order',
+			'allow_trackback', 'notify_message', 'status', 'comment_status',
+		);
+		
+		// List of columns that should always be selected
+		$defaultColumnList = array(
+			'document_srl', 'module_srl', 'category_srl', 'lang_code', 'is_notice',
+			'title', 'title_bold', 'title_color', 'member_srl', 'nick_name', 'tags', 'extra_vars',
+			'comment_count', 'trackback_count', 'uploaded_count', 'status', 'regdate', 'last_update',
+		);
+		
+		// List of columns selected by the user
+		$selectedColumnList = array_keys($this->listConfig);
+		
+		// Return all columns for some legacy skins
 		if($this->module_info->skin == 'xe_guestbook' || $this->module_info->default_style == 'blog')
 		{
-			$defaultColumn = $tableColumnList;
+			$this->columnList = $allColumnList;
 		}
-
-		if (in_array('last_post', $configColumList)){
-			array_push($this->columnList, 'last_updater');
+		else
+		{
+			// Convert some special names to corresponding column names
+			if(in_array('summary', $selectedColumnList))
+			{
+				$selectedColumnList[] = 'content';
+			}
+			if(in_array('last_post', $selectedColumnList))
+			{
+				$selectedColumnList[] = 'last_updater';
+			}
+			
+			// Remove duplicates and/or invalid column names
+			$selectedColumnList = array_intersect($selectedColumnList, $allColumnList);
+			$this->columnList = array_unique(array_merge($defaultColumnList, $selectedColumnList));
 		}
-
-		$this->columnList = array_unique(array_merge($this->columnList, $defaultColumn));
-
+		
 		// add table name
 		foreach($this->columnList as $no => $value)
 		{
@@ -828,10 +838,8 @@ class boardView extends board
 
 		// GET parameter document_srl from request
 		$document_srl = Context::get('document_srl');
-		$oDocument = DocumentModel::getDocument(0, $this->grant->manager);
+		$oDocument = DocumentModel::getDocument(0);
 		$oDocument->setDocument($document_srl);
-
-		$member_info = MemberModel::getMemberInfo($oDocument->get('member_srl'));
 
 		$savedDoc = ($oDocument->get('module_srl') == $oDocument->get('member_srl'));
 		$oDocument->add('module_srl', $this->module_srl);
@@ -854,10 +862,15 @@ class boardView extends board
 					throw new Rhymix\Framework\Exception('msg_protect_update_content');
 				}
 			}
-		}
-		if($member_info->is_admin == 'Y' && $this->user->is_admin != 'Y')
-		{
-			throw new Rhymix\Framework\Exception('msg_admin_document_no_modify');
+			
+			if ($this->module_info->protect_admin_content_update !== 'N')
+			{
+				$member_info = MemberModel::getMemberInfo($oDocument->get('member_srl'));
+				if($member_info->is_admin == 'Y' && $this->user->is_admin != 'Y')
+				{
+					throw new Rhymix\Framework\Exception('msg_admin_document_no_modify');
+				}
+			}
 		}
 
 		// if the document is not granted, then back to the password input form
@@ -993,6 +1006,15 @@ class boardView extends board
 			}
 		}
 
+		if ($this->module_info->protect_admin_content_delete !== 'N')
+		{
+			$member_info = MemberModel::getMemberInfo($oDocument->get('member_srl'));
+			if($member_info->is_admin == 'Y' && $this->user->is_admin != 'Y')
+			{
+				throw new Rhymix\Framework\Exception('document.msg_document_is_admin_not_permitted');
+			}
+		}
+
 		Context::set('oDocument',$oDocument);
 
 		/**
@@ -1068,7 +1090,7 @@ class boardView extends board
 		}
 
 		// get the comment
-		$oSourceComment = CommentModel::getComment($parent_srl, $this->grant->manager);
+		$oSourceComment = CommentModel::getComment($parent_srl);
 
 		// if the comment is not existed, opoup an error message
 		if(!$oSourceComment->isExists())
@@ -1088,7 +1110,7 @@ class boardView extends board
 		}
 
 		// get the comment information
-		$oComment = CommentModel::getComment();
+		$oComment = CommentModel::getComment(0);
 		$oComment->add('parent_srl', $parent_srl);
 		$oComment->add('document_srl', $oSourceComment->get('document_srl'));
 
@@ -1110,7 +1132,6 @@ class boardView extends board
 	 **/
 	function dispBoardModifyComment()
 	{
-		$logged_info = Context::get('logged_info');
 		// check grant
 		if(!$this->grant->write_comment)
 		{
@@ -1128,9 +1149,21 @@ class boardView extends board
 		}
 
 		// get comment information
-		$oComment = CommentModel::getComment($comment_srl, $this->grant->manager);
+		$oComment = CommentModel::getComment($comment_srl);
 
-		$member_info = MemberModel::getMemberInfo($oComment->member_srl);
+		// if the comment is not exited, alert an error message
+		if(!$oComment->isExists())
+		{
+			return $this->dispBoardMessage('msg_not_founded');
+		}
+
+		// if the comment is not granted, then back to the password input form
+		if(!$oComment->isGranted())
+		{
+			Context::set('document_srl', $oComment->get('document_srl'));
+			return $this->setTemplateFile('input_password_form');
+		}
+
 		if($this->module_info->protect_comment_regdate > 0 && $this->grant->manager == false)
 		{
 			if($oComment->get('regdate') < date('YmdHis', strtotime('-'.$this->module_info->protect_document_regdate.' day')))
@@ -1149,23 +1182,16 @@ class boardView extends board
 			}
 		}
 
-		if($member_info->is_admin == 'Y' && $logged_info->is_admin != 'Y')
+		$logged_info = Context::get('logged_info');
+		if ($this->module_info->protect_admin_content_update !== 'N' && $logged_info->is_admin !== 'Y' && $logged_info->member_srl !== $oComment->member_srl)
 		{
-			throw new Rhymix\Framework\Exception('msg_admin_comment_no_modify');
+			$member_info = MemberModel::getMemberInfo($oComment->member_srl);
+			if($member_info->is_admin === 'Y')
+			{
+				throw new Rhymix\Framework\Exception('msg_admin_comment_no_modify');
+			}
 		}
-
-		// if the comment is not exited, alert an error message
-		if(!$oComment->isExists())
-		{
-			return $this->dispBoardMessage('msg_not_founded');
-		}
-
-		// if the comment is not granted, then back to the password input form
-		if(!$oComment->isGranted())
-		{
-			return $this->setTemplateFile('input_password_form');
-		}
-
+		
 		// setup the comment variables on context
 		Context::set('oSourceComment', CommentModel::getComment());
 		Context::set('oComment', $oComment);
@@ -1195,7 +1221,7 @@ class boardView extends board
 		// if the comment exists, then get the comment information
 		if($comment_srl)
 		{
-			$oComment = CommentModel::getComment($comment_srl, $this->grant->manager);
+			$oComment = CommentModel::getComment($comment_srl);
 		}
 
 		if($this->module_info->protect_comment_regdate > 0 && $this->grant->manager == false)
@@ -1217,6 +1243,16 @@ class boardView extends board
 			}
 		}
 
+		$logged_info = Context::get('logged_info');
+		if ($this->module_info->protect_admin_content_delete !== 'N' && $logged_info->is_admin !== 'Y' && $logged_info->member_srl !== $oComment->member_srl)
+		{
+			$member_info = MemberModel::getMemberInfo($oComment->member_srl);
+			if($member_info->is_admin === 'Y')
+			{
+				throw new Rhymix\Framework\Exception('msg_admin_comment_no_delete');
+			}
+		}
+		
 		// if the comment is not existed, then back to the board content page
 		if(!$oComment->isExists() )
 		{

@@ -39,10 +39,10 @@
 			</div>
 			<p class="action" cond="!$comment->isDeleted()">
 				<a href="{getUrl('act','dispBoardVoteLog','target_srl',$comment->comment_srl,'target','comment')}">{$lang->cmd_comment_vote_user}</a>
-				<a cond="$comment->getMyVote() === false || $comment->getMyVote() < 0" href="#" onclick="doCallModuleAction('comment','procCommentVoteUp','{$comment->comment_srl}');return false;"|cond="$is_logged" class="voted"><i class="xi-thumbs-up"></i>{$lang->cmd_vote}{$comment->get('voted_count')}</a>
-				<a cond="$comment->getMyVote() > 0" href="#" onclick="doCallModuleAction('comment','procCommentVoteUpCancel','{$comment->comment_srl}');return false;"|cond="$is_logged" class="voted"><i class="xi-thumbs-up"></i>{$lang->cmd_vote}{$comment->get('voted_count')}</a>
-				<a cond="$comment->getMyVote() === false || $comment->getMyVote() > 0" href="#" onclick="doCallModuleAction('comment','procCommentVoteDown','{$comment->comment_srl}');return false;"|cond="$is_logged" class="voted"><i class="xi-thumbs-up"></i>{$lang->cmd_vote_down}{$comment->get('blamed_count')}</a>
-				<a cond="$comment->getMyVote() < 0" href="#" onclick="doCallModuleAction('comment','procCommentVoteDownCancel','{$comment->comment_srl}');return false;"|cond="$is_logged" class="voted"><i class="xi-thumbs-up"></i>{$lang->cmd_vote_down}{$comment->get('blamed_count')}</a>
+				<a cond="$comment->getMyVote() === false || $comment->getMyVote() < 0" href="#" onclick="doCallModuleAction('comment','procCommentVoteUp','{$comment->comment_srl}');return false;" class="voted"><i class="xi-thumbs-up"></i>{$lang->cmd_vote}{$comment->get('voted_count')}</a>
+				<a cond="$comment->getMyVote() > 0" href="#" onclick="doCallModuleAction('comment','procCommentVoteUpCancel','{$comment->comment_srl}');return false;" class="voted"><i class="xi-thumbs-up"></i>{$lang->cmd_vote}{$comment->get('voted_count')}</a>
+				<a cond="$comment->getMyVote() === false || $comment->getMyVote() > 0" href="#" onclick="doCallModuleAction('comment','procCommentVoteDown','{$comment->comment_srl}');return false;" class="voted"><i class="xi-thumbs-up"></i>{$lang->cmd_vote_down}{$comment->get('blamed_count')}</a>
+				<a cond="$comment->getMyVote() < 0" href="#" onclick="doCallModuleAction('comment','procCommentVoteDownCancel','{$comment->comment_srl}');return false;" class="voted"><i class="xi-thumbs-up"></i>{$lang->cmd_vote_down}{$comment->get('blamed_count')}</a>
 				<a cond="$oDocument->allowComment()" href="{getUrl('act','dispBoardReplyComment','comment_srl',$comment->comment_srl)}" class="reply"><i class="xi-reply"></i> {$lang->cmd_reply}</a>
 				<a cond="$comment->isGranted()||!$comment->get('member_srl')" href="{getUrl('act','dispBoardModifyComment','comment_srl',$comment->comment_srl)}" class="modify"><i class="xi-eraser"></i> {$lang->cmd_modify}</a>
 				<a cond="$comment->isGranted()||!$comment->get('member_srl')" href="{getUrl('act','dispBoardDeleteComment','comment_srl',$comment->comment_srl)}" class="delete"><i class="xi-trash"></i> {$lang->cmd_delete}</a>
@@ -85,6 +85,9 @@
 			<label cond="$is_logged" for="notify_message">{$lang->notify}</label>
 			<input cond="$module_info->secret=='Y'" type="checkbox" name="is_secret" value="Y" id="is_secret" class="iCheck" />
 			<label cond="$module_info->secret=='Y'" for="is_secret">{$lang->secret}</label>
+		</div>
+		<div class="write_captcha" cond="isset($captcha) && $captcha && $captcha->isTargetAction('comment')">
+			{$captcha}
 		</div>
 		<div style="float:right">
 			<button type="submit" class="btn_insert"><i class="xi-message"></i> {$lang->cmd_comment_registration}</button>

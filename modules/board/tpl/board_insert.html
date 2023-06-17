@@ -178,13 +178,13 @@
 				<p style="padding:3px 0 0 0">{$lang->about_list_config}</p>
 				<div style="display:inline-block">
 					<select class="multiorder_show" size="8" multiple="multiple" style="width:220px;vertical-align:top;margin-bottom:8px">
-						<option loop="$extra_vars => $key, $val" cond="!$list_config[$key]" value="{$key}">{$val->name}</option>
+						<option loop="$extra_vars => $key, $val" cond="!$list_config[$key]" value="{$key}">{Context::replaceUserLang($val->name)}</option>
 					</select><br />
 					<button type="button" class="x_btn multiorder_add" style="vertical-align:top">{$lang->cmd_insert}</button>
 				</div>
 				<div style="display:inline-block">
 					<select class="multiorder_selected" size="8" multiple="multiple" style="width:220px;vertical-align:top;margin-bottom:8px">
-						<option loop="$list_config => $key, $val" value="{$key}">{$val->name}</option>
+						<option loop="$list_config => $key, $val" value="{$key}">{Context::replaceUserLang($val->name)}</option>
 					</select><br />
 					<span class="x_btn-group">
 						<button type="button" class="x_btn multiorder_up" style="vertical-align:top">{$lang->cmd_move_up}</button>
@@ -203,7 +203,7 @@
 				<select name="order_target" id="order_target" title="{$lang->order_target}">
 					<option loop="$order_target=> $key, $val" value="{$key}" selected="selected"|cond="$module_info->order_target== $key">{$val}</option>
 					<block cond="$extra_order_target">
-					<option loop="$extra_order_target=> $key, $val" value="{$key}" selected="selected"|cond="$module_info->order_target== $key">{$val}</option>
+					<option loop="$extra_order_target=> $key, $val" value="{$key}" selected="selected"|cond="$module_info->order_target== $key">{Context::replaceUserLang($val)}</option>
 					</block>
 				</select>
 				<select name="order_type" id="order_type" title="{$lang->order_type}">
@@ -252,6 +252,12 @@
 			<div class="x_controls">
 				<label class="x_inline" for="use_anonymous"><input type="checkbox" name="use_anonymous" id="use_anonymous" value="Y" checked="checked"|cond="$module_info->use_anonymous == 'Y'" /> {$lang->about_use_anonymous_part1}</label>
 				<p class="x_help-block">{$lang->about_use_anonymous_part2}</p>
+			</div>
+		</div>
+		<div class="x_control-group">
+			<label class="x_control-label">{$lang->anonymous_except_admin}</label>
+			<div class="x_controls">
+				<label class="x_inline" for="anonymous_except_admin"><input type="checkbox" name="anonymous_except_admin" id="anonymous_except_admin" value="Y" checked="checked"|cond="$module_info->anonymous_except_admin == 'Y'" /> {$lang->about_anonymous_except_admin}</label>
 			</div>
 		</div>
 		<div class="x_control-group">
@@ -364,6 +370,16 @@
 				<p>{$lang->about_protect_comment}</p>
 			</div>
 		</div>
+		<!--@if($this->user->isAdmin())-->
+		<div class="x_control-group">
+			<label class="x_control-label">{$lang->protect_admin_content}</label>
+			<div class="x_controls">
+				<label class="x_inline" for="protect_admin_content_delete"><input type="checkbox" name="protect_admin_content_delete" id="protect_admin_content_delete" value="Y" checked="checked"|cond="$module_info->protect_admin_content_delete !== 'N'" /> {$lang->cmd_delete}</label>
+				<label class="x_inline" for="protect_admin_content_update"><input type="checkbox" name="protect_admin_content_update" id="protect_admin_content_update" value="Y" checked="checked"|cond="$module_info->protect_admin_content_update !== 'N'" /> {$lang->cmd_modify}</label>
+				<p>{$lang->about_protect_admin_content}</p>
+			</div>
+		</div>
+		<!--@end-->
 		<div class="x_control-group">
 			<label class="x_control-label">{$lang->protect_regdate}</label>
 			<div class="x_controls">

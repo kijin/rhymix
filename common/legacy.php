@@ -137,12 +137,13 @@ function getClass($module_name)
  * @param array|object $args Arguments
  * @param array $column_list Column list
  * @param string $result_type 'auto', 'array' or 'raw'
+ * @param string $result_class Name of class to use instead of stdClass
  * @return object Query result data
  */
-function executeQuery($query_id, $args = [], $column_list = [], $result_type = 'auto')
+function executeQuery($query_id, $args = [], $column_list = [], $result_type = 'auto', $result_class = 'stdClass')
 {
 	$oDB = Rhymix\Framework\DB::getInstance();
-	return $oDB->executeQuery($query_id, $args, $column_list, $result_type);
+	return $oDB->executeQuery($query_id, $args, $column_list, $result_type, $result_class);
 }
 
 /**
@@ -152,12 +153,13 @@ function executeQuery($query_id, $args = [], $column_list = [], $result_type = '
  * @param string $query_id (module name.query XML file)
  * @param array|object $args Arguments
  * @param array $column_list Column list
+ * @param string $result_class Name of class to use instead of stdClass
  * @return object Query result data
  */
-function executeQueryArray($query_id, $args = [], $column_list = [])
+function executeQueryArray($query_id, $args = [], $column_list = [], $result_class = 'stdClass')
 {
 	$oDB = Rhymix\Framework\DB::getInstance();
-	return $oDB->executeQuery($query_id, $args, $column_list, 'array');
+	return $oDB->executeQuery($query_id, $args, $column_list, 'array', $result_class);
 }
 
 /**
@@ -522,18 +524,27 @@ function ztime($str)
 	$year = (int)substr($str, 0, 4);
 	$month = (int)substr($str, 4, 2) ?: 1;
 	$day = (int)substr($str, 6, 2) ?: 1;
-	if(strlen($str) >= 8)
+	if(strlen($str) > 8)
 	{
+		$has_time = true;
 		$hour = (int)substr($str, 8, 2);
 		$min = (int)substr($str, 10, 2);
 		$sec = (int)substr($str, 12, 2);
 	}
 	else
 	{
+		$has_time = false;
 		$hour = $min = $sec = 0;
 	}
 	$timestamp = gmmktime($hour, $min, $sec, $month, $day, $year);
-	$offset = Rhymix\Framework\Config::get('locale.internal_timezone') ?: date('Z', $timestamp);
+	if ($has_time)
+	{
+		$offset = Rhymix\Framework\Config::get('locale.internal_timezone') ?: date('Z', $timestamp);
+	}
+	else
+	{
+		$offset = 0;
+	}
 	return $timestamp - $offset;
 }
 
@@ -694,6 +705,7 @@ function debugPrint($entry = null)
 }
 
 /**
+ * @deprecated
  * @param string $type query, trigger
  * @param float $elapsed_time
  * @param object $obj
@@ -704,6 +716,7 @@ function writeSlowlog($type, $elapsed_time, $obj)
 }
 
 /**
+ * @deprecated
  * @param void
  */
 function flushSlowlog()
@@ -762,6 +775,7 @@ function getDestroyXeVars($vars)
 /**
  * Legacy error handler
  *
+ * @deprecated
  * @param int $errno
  * @param string $errstr
  * @param string $file
@@ -793,12 +807,13 @@ function getNumberingPath($no, $size = 3)
 /**
  * Decode the URL in Korean
  *
+ * @deprecated
  * @param string $str The url
  * @return string
  */
 function url_decode($str)
 {
-	return htmlspecialchars(utf8RawUrlDecode($str), null, 'UTF-8');
+	return escape(utf8RawUrlDecode($str));
 }
 
 /**
@@ -815,6 +830,7 @@ function removeHackTag($content)
 /**
  * HTMLPurifier wrapper (Deprecated)
  *
+ * @deprecated
  * @param string &$content Target content
  * @return string
  */
@@ -826,6 +842,7 @@ function purifierHtml(&$content)
 /**
  * Check xmp tag (Deprecated)
  *
+ * @deprecated
  * @param string $content Target content
  * @return string
  */
@@ -837,6 +854,7 @@ function checkXmpTag($content)
 /**
  * Block widget code (Deprecated)
  *
+ * @deprecated
  * @param string $content Taget content
  * @return string
  **/
@@ -848,6 +866,7 @@ function blockWidgetCode($content)
 /**
  * Remove src hack (Deprecated)
  *
+ * @deprecated
  * @param array $match
  * @return string
  */
@@ -859,6 +878,7 @@ function removeSrcHack($match)
 /**
  * Check uploaded file (Deprecated)
  *
+ * @deprecated
  * @param string $file Taget file path
  * @return bool
  */
@@ -886,6 +906,7 @@ if(!function_exists('hexrgb'))
  * provides backward compatibility for zero board4 which uses old_password() of mysql 4.1 earlier versions. 
  * the function implemented by referring to the source codes of password.c file in mysql
  *
+ * @deprecated
  * @param string $password
  * @return string
  */
@@ -897,6 +918,7 @@ function mysql_pre4_hash_password($password)
 /**
  * Return the requested script path
  *
+ * @deprecated
  * @return string
  */
 function getScriptPath()
@@ -907,6 +929,7 @@ function getScriptPath()
 /**
  * Return the requested script path
  *
+ * @deprecated
  * @return string
  */
 function getRequestUriByServerEnviroment()
@@ -919,6 +942,7 @@ function getRequestUriByServerEnviroment()
  * Function converts an Javascript escaped string back into a string with specified charset (default is UTF-8).
  * Modified function from http://pure-essence.net/stuff/code/utf8RawUrlDecode.phps
  *
+ * @deprecated
  * @param string $source
  * @return string
  */
@@ -932,6 +956,7 @@ function utf8RawUrlDecode($source)
 /**
  * Returns utf-8 string of given code
  *
+ * @deprecated
  * @param int $num
  * @return string
  */
@@ -970,6 +995,7 @@ function detectUTF8($string, $return_convert = FALSE, $urldecode = TRUE)
 /**
  * get json encoded string of data
  *
+ * @deprecated
  * @param mixed $data
  * @return string
  */
@@ -1031,6 +1057,7 @@ function stripEmbedTagForAdmin(&$content, $writer_member_srl)
 /**
  * Require pear
  *
+ * @deprecated
  * @return void
  */
 function requirePear()
@@ -1083,7 +1110,7 @@ function changeValueInUrl($key, $requestKey, $dbKey, $urlName = 'success_return_
 			if(isset($parsedStr[$key]))
 			{
 				$parsedStr[$key] = $requestKey;
-				$successReturnUrl .= $arrayUrl['path'].'?'.http_build_query($parsedStr);
+				$successReturnUrl = $arrayUrl['path'].'?'.http_build_query($parsedStr);
 				Context::set($urlName, $successReturnUrl);
 			}
 		}

@@ -287,7 +287,7 @@ class FileHandler
 			$request_headers = array();
 			$request_cookies = array();
 			$request_options = array(
-				'verify' => \RX_BASEDIR . 'common/libraries/cacert.pem',
+				'verify' => \RX_BASEDIR . 'vendor/composer/ca-bundle/res/cacert.pem',
 				'timeout' => $timeout,
 			);
 			
@@ -467,8 +467,13 @@ class FileHandler
 			$channels = 6; //for png
 		}
 		$memoryNeeded = round(($imageInfo[0] * $imageInfo[1] * $imageInfo['bits'] * $channels / 8 + $K64 ) * $TWEAKFACTOR);
-		$memoryLimit = self::returnBytes(ini_get('memory_limit'));
-		if($memoryLimit < 0)
+		$memoryLimit = ini_get('memory_limit');
+		if($memoryLimit <= 0)
+		{
+			return true;
+		}
+		$memoryLimit = self::returnBytes($memoryLimit);
+		if($memoryLimit <= 0)
 		{
 			return true;
 		}
@@ -501,7 +506,10 @@ class FileHandler
 			return false;
 		}
 
+		// sanitize params
 		$target_file = self::getRealPath($target_file);
+		$resize_width = intval($resize_width);
+		$resize_height = $resize_height === 'auto' ? 'auto' : intval($resize_height);
 		if(!$resize_width)
 		{
 			$resize_width = 100;
@@ -543,7 +551,13 @@ class FileHandler
 		{
 			$target_type = 'jpg';
 		}
-
+		
+		// Automatically set resize_height if it is 'auto'
+		if ($resize_height === 'auto')
+		{
+			$resize_height = round($resize_width / ($width / $height));
+		}
+		
 		// create temporary image having original type
 		if ($type === 'gif' && function_exists('imagecreatefromgif'))
 		{
@@ -566,6 +580,10 @@ class FileHandler
 			$source = @imagecreatefromwebp($source_file);
 		}
 		else
+		{
+			return false;
+		}
+		if (!$source)
 		{
 			return false;
 		}

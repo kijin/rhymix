@@ -6,6 +6,7 @@
  *
  * @author NAVER (developers@xpressengine.com)
  */
+#[AllowDynamicProperties]
 class Context
 {
 	/**
@@ -140,8 +141,9 @@ class Context
 	private static $_oFrontEndFileHandler = null;
 
 	/**
-	 * Plugin blacklist cache
+	 * Plugin default and blacklist cache
 	 */
+	private static $_default_plugins = null;
 	private static $_blacklist = null;
 
 	/**
@@ -259,9 +261,10 @@ class Context
 				}
 			}
 			$site_module_info = ModuleModel::getDefaultMid() ?: new stdClass;
+			$site_timezone = (isset($site_module_info->settings->timezone) && $site_module_info->settings->timezone !== 'default') ? $site_module_info->settings->timezone : null;
 			self::set('site_module_info', $site_module_info);
-			self::set('_default_timezone', ($site_module_info->settings && $site_module_info->settings->timezone) ? $site_module_info->settings->timezone : null);
-			self::set('_default_url', self::$_instance->db_info->default_url = self::getDefaultUrl($site_module_info));
+			self::set('_default_timezone', $site_timezone);
+			self::set('_default_url', self::$_instance->db_info->default_url = self::getDefaultUrl($site_module_info, RX_SSL));
 			self::set('_http_port', self::$_instance->db_info->http_port = $site_module_info->http_port ?: null);
 			self::set('_https_port', self::$_instance->db_info->https_port = $site_module_info->https_port ?: null);
 			self::set('_use_ssl', self::$_instance->db_info->use_ssl = ($site_module_info->security === 'none' ? 'none' : 'always'));
@@ -286,8 +289,8 @@ class Context
 		}
 		
 		// Load certificate authorities for curl and openssl.
-		ini_set('curl.cainfo', RX_BASEDIR . 'common/libraries/cacert.pem');
-		ini_set('openssl.cafile', RX_BASEDIR . 'common/libraries/cacert.pem');
+		ini_set('curl.cainfo', RX_BASEDIR . 'vendor/composer/ca-bundle/res/cacert.pem');
+		ini_set('openssl.cafile', RX_BASEDIR . 'vendor/composer/ca-bundle/res/cacert.pem');
 		
 		// Load language support.
 		$enabled_langs = self::loadLangSelected();
@@ -327,14 +330,18 @@ class Context
 		
 		if(!$lang_type || !isset($enabled_langs[$lang_type]))
 		{
-			if($site_module_info->settings->language)
+			if(isset($site_module_info->settings->language) && $site_module_info->settings->language !== 'default')
 			{
 				$lang_type = self::$_instance->db_info->lang_type = $site_module_info->settings->language;
 			}
 			else
 			{
-				$lang_type = self::$_instance->db_info->lang_type = self::$_instance->db_info->lang_type ?? 'ko';
+				$lang_type = self::$_instance->db_info->lang_type = config('locale.default_lang');
 			}
+		}
+		if(!$lang_type || !isset($enabled_langs[$lang_type]))
+		{
+			$lang_type = self::$_instance->db_info->lang_type = 'ko';
 		}
 
 		$lang = Rhymix\Framework\Lang::getInstance($lang_type);
@@ -356,15 +363,17 @@ class Context
 			$oSessionController = SessionController::getInstance();
 			ini_set('session.serialize_handler', 'php');
 			session_set_save_handler(
-					array(&$oSessionController, 'open'), array(&$oSessionController, 'close'), array(&$oSessionModel, 'read'), array(&$oSessionController, 'write'), array(&$oSessionController, 'destroy'), array(&$oSessionController, 'gc')
+					array($oSessionController, 'open'), array($oSessionController, 'close'), array($oSessionModel, 'read'), array($oSessionController, 'write'), array($oSessionController, 'destroy'), array($oSessionController, 'gc')
 			);
 		}
 		
 		// start session
-		$relax_key_checks = ((self::$_get_vars->act ?? null) === 'procFileUpload' && preg_match('/shockwave\s?flash/i', $_SERVER['HTTP_USER_AGENT'] ?? ''));
-		Rhymix\Framework\Session::checkSSO($site_module_info);
-		Rhymix\Framework\Session::start(false, $relax_key_checks);
-
+		if (\PHP_SAPI !== 'cli')
+		{
+			Rhymix\Framework\Session::checkSSO($site_module_info);
+			Rhymix\Framework\Session::start();
+		}
+		
 		// start output buffer
 		if (\PHP_SAPI !== 'cli')
 		{
@@ -381,9 +390,12 @@ class Context
 			else
 			{
 				self::set('is_logged', false);
-				self::set('logged_info', Rhymix\Framework\Session::getMemberInfo());
+				self::set('logged_info', false);
 			}
 		}
+		
+		// start debugging
+		Rhymix\Framework\Debug::isEnabledForCurrentUser();
 		
 		// set locations for javascript use
 		$current_url = $request_uri = self::getRequestUri();
@@ -891,7 +903,7 @@ class Context
 			$lang = Rhymix\Framework\Cache::get('site_and_module:user_defined_langs:0:' . self::getLangType());
 			if($lang === null)
 			{
-				ModuleAdminController::getInstance()->makeCacheDefinedLangCode(0);
+				$lang = ModuleAdminController::getInstance()->makeCacheDefinedLangCode(0);
 			}
 		}
 		
@@ -1175,13 +1187,13 @@ class Context
 					return;
 				}
 				libxml_disable_entity_loader(true);
-				$params = Rhymix\Framework\Parsers\XMLRPCParser::parse($GLOBALS['HTTP_RAW_POST_DATA']);
+				$params = Rhymix\Framework\Parsers\XmlrpcParser::parse($GLOBALS['HTTP_RAW_POST_DATA']);
 			}
 			elseif($request_method === 'JSON')
 			{
 				if(substr($GLOBALS['HTTP_RAW_POST_DATA'], 0, 1) === '{')
 				{
-					$params = json_decode($GLOBALS['HTTP_RAW_POST_DATA']);
+					$params = json_decode($GLOBALS['HTTP_RAW_POST_DATA'], true);
 				}
 				else
 				{
@@ -1191,10 +1203,15 @@ class Context
 			
 			foreach($params as $key => $val)
 			{
-				if ($val !== '' && !isset($request_args[$key]))
+				if ($val !== '' && $val !== null && !isset($request_args[$key]))
 				{
 					$request_args[$key] = $val;
 				}
+			}
+			
+			if (!empty($params['_rx_csrf_token']) && !isset($_REQUEST['_rx_csrf_token']))
+			{
+				$_REQUEST['_rx_csrf_token'] = $params['_rx_csrf_token'];
 			}
 		}
 		
@@ -1696,11 +1713,21 @@ class Context
 			$get_vars['act'] = $act_alias[$act];
 		}
 		
+		// Don't use full short URL for admin pages #1643
+		if (isset($get_vars['module']) && $get_vars['module'] === 'admin' && $rewrite_level > 1)
+		{
+			$force_rewrite_level = 1;
+		}
+		else
+		{
+			$force_rewrite_level = 0;
+		}
+		
 		// organize URL
 		$query = '';
 		if(count($get_vars) > 0)
 		{
-			$query = Rhymix\Framework\Router::getURL($get_vars, $rewrite_level);
+			$query = Rhymix\Framework\Router::getURL($get_vars, $force_rewrite_level ?: $rewrite_level);
 		}
 		
 		// If using SSL always
@@ -1804,9 +1831,9 @@ class Context
 			$site_module_info = $domain_infos[$domain] ?: $site_module_info;
 		}
 		
-		$prefix = ($use_ssl && $site_module_info->security !== 'none') ? 'https://' : 'http://';
+		$prefix = ($use_ssl || $site_module_info->security !== 'none') ? 'https://' : 'http://';
 		$hostname = $site_module_info->domain;
-		$port = ($use_ssl && $site_module_info->security !== 'none') ? $site_module_info->https_port : $site_module_info->http_port;
+		$port = ($use_ssl || $site_module_info->security !== 'none') ? $site_module_info->https_port : $site_module_info->http_port;
 		$result = $prefix . $hostname . ($port ? sprintf(':%d', $port) : '') . RX_BASEURL;
 		return $result;
 	}
@@ -2251,17 +2278,19 @@ class Context
 
 	/**
 	 * Returns javascript plugin file info
-	 * @param string $pluginName
+	 * @param string $plugin_name
 	 * @return stdClass
 	 */
-	public static function getJavascriptPluginInfo($pluginName)
+	public static function getJavascriptPluginInfo($plugin_name)
 	{
+		/*
 		if($plugin_name == 'ui.datepicker')
 		{
 			$plugin_name = 'ui';
 		}
+		*/
 
-		$plugin_path = './common/js/plugins/' . $pluginName . '/';
+		$plugin_path = './common/js/plugins/' . $plugin_name . '/';
 		$info_file = $plugin_path . 'plugin.load';
 		if(!is_readable($info_file))
 		{
@@ -2371,19 +2400,24 @@ class Context
 		self::$_instance->html_header .= (self::$_instance->html_header ? "\n" : '') . $header;
 	}
 
-	public static function clearHtmlHeader()
-	{
-		self::$_instance->html_header = '';
-	}
-
 	/**
 	 * Returns added html code by addHtmlHeader()
 	 *
 	 * @return string Added html code before </head>
 	 */
-	public static function getHtmlHeader()
+	public static function getHtmlHeader(): string
 	{
 		return self::$_instance->html_header;
+	}
+
+	/**
+	 * Remove all content added by addHtmlHeader()
+	 * 
+	 * @return void
+	 */
+	public static function clearHtmlHeader()
+	{
+		self::$_instance->html_header = '';
 	}
 
 	/**
@@ -2393,19 +2427,52 @@ class Context
 	 */
 	public static function addBodyClass($class_name)
 	{
-		self::$_instance->body_class[] = $class_name;
+		$class_name = strval($class_name);
+		if (!in_array($class_name, self::$_instance->body_class))
+		{
+			self::$_instance->body_class[] = $class_name;
+		}
+	}
+
+	/**
+	 * Remove css class from Html Body
+	 *
+	 * @param string $class_name class name
+	 */
+	public static function removeBodyClass($class_name)
+	{
+		$class_name = strval($class_name);
+		self::$_instance->body_class = array_values(array_filter(self::$_instance->body_class, function($str) use($class_name) {
+			return $str !== $class_name;
+		}));
 	}
 
 	/**
 	 * Return css class to Html Body
 	 *
-	 * @return string Return class to html body
+	 * @return array
 	 */
-	public static function getBodyClass()
+	public static function getBodyClassList(): array
 	{
-		$class_list = self::$_instance->body_class;
-		
-		return (count($class_list) > 0) ? sprintf(' class="%s"', implode(' ', array_unique($class_list))) : '';
+		return self::$_instance->body_class;
+	}
+
+	/**
+	 * Return css class to Html Body
+	 *
+	 * @deprecated
+	 * @return string
+	 */
+	public static function getBodyClass(): string
+	{
+		if (count(self::$_instance->body_class))
+		{
+			return sprintf(' class="%s"', implode(' ', self::$_instance->body_class));
+		}
+		else
+		{
+			return '';
+		}
 	}
 
 	/**
@@ -2525,6 +2592,27 @@ class Context
 		return Rhymix\Framework\Router::getRewriteLevel();
 	}
 
+	/**
+	 * Check whether an addon, layout, module, or widget is distributed with Rhymix core.
+	 * 
+	 * @param string $plugin_name
+	 * @param string $type
+	 * @return bool
+	 */
+	public static function isDefaultPlugin($plugin_name, $type)
+	{
+		if (self::$_default_plugins === null)
+		{
+			self::$_default_plugins = (include RX_BASEDIR . 'common/defaults/plugins.php');
+			if (!is_array(self::$_default_plugins))
+			{
+				self::$_default_plugins = array();
+			}
+		}
+		
+		return isset(self::$_default_plugins[$type][$plugin_name]);
+	}
+	
 	/**
 	 * Check whether an addon, module, or widget is blacklisted
 	 * 
@@ -2695,7 +2783,7 @@ class Context
 	 */
 	public static function addMetaImage($filename, $width = 0, $height = 0)
 	{
-		$filename = preg_replace('/^[.\\\\\\/]+/', '', $filename);
+		$filename = preg_replace(['/^[.\\\\\\/]+/', '/\\?[0-9]+$/'], ['', ''], $filename);
 		if (!file_exists(\RX_BASEDIR . $filename))
 		{
 			return;
@@ -2761,6 +2849,7 @@ class Context
 	public static function setCanonicalURL($url)
 	{
 		self::$_instance->canonical_url = escape($url, false);
+		self::addOpenGraphData('og:url', self::$_instance->canonical_url);
 	}
 	
 	/**

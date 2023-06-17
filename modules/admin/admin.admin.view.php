@@ -435,13 +435,13 @@ class adminAdminView extends admin
 		// Load member config.
 		$member_config = getModel('module')->getModuleConfig('member');
 		Context::set('member_config', $member_config);
-		Context::set('webmaster_name', $member_config->webmaster_name ? $member_config->webmaster_name : 'webmaster');
-		Context::set('webmaster_email', $member_config->webmaster_email);
+		Context::set('webmaster_name', !empty($member_config->webmaster_name) ? $member_config->webmaster_name : 'webmaster');
+		Context::set('webmaster_email', $member_config->webmaster_email ?? '');
 		
 		// Load module config.
 		$module_config = getModel('module')->getModuleConfig('module');
 		Context::set('module_config', $module_config);
-
+		
 		// Load mail drivers.
 		$mail_drivers = Rhymix\Framework\Mail::getSupportedDrivers();
 		uasort($mail_drivers, function($a, $b) {
@@ -488,8 +488,7 @@ class adminAdminView extends admin
 	function dispAdminConfigSecurity()
 	{
 		// Load embed filter.
-		context::set('mediafilter_iframe', implode(PHP_EOL, Rhymix\Framework\Filters\MediaFilter::getIframeWhitelist()));
-		context::set('mediafilter_object', implode(PHP_EOL, Rhymix\Framework\Filters\MediaFilter::getObjectWhitelist()));
+		context::set('mediafilter_whitelist', implode(PHP_EOL, Rhymix\Framework\Filters\MediaFilter::getWhitelist()));
 		context::set('mediafilter_classes', implode(PHP_EOL, Rhymix\Framework\Config::get('mediafilter.classes') ?: array()));
 		
 		// Load robot user agents.
@@ -559,8 +558,8 @@ class adminAdminView extends admin
 			{
 				Context::set('object_cache_host', parse_url(array_first($cache_servers), PHP_URL_HOST) ?: null);
 				Context::set('object_cache_port', parse_url(array_first($cache_servers), PHP_URL_PORT) ?: null);
-				Context::set('object_cache_user', parse_url(array_first($cache_servers), PHP_URL_USER) ?: null);
-				Context::set('object_cache_pass', parse_url(array_first($cache_servers), PHP_URL_PASS) ?: null);
+				Context::set('object_cache_user', parse_url(array_first($cache_servers), PHP_URL_USER) ?? '');
+				Context::set('object_cache_pass', parse_url(array_first($cache_servers), PHP_URL_PASS) ?? '');
 				$cache_dbnum = preg_replace('/[^\d]/', '', parse_url(array_first($cache_servers), PHP_URL_FRAGMENT) ?: parse_url(array_first($cache_servers), PHP_URL_PATH));
 				Context::set('object_cache_dbnum', $cache_dbnum === '' ? 1 : intval($cache_dbnum));
 			}
@@ -577,12 +576,12 @@ class adminAdminView extends admin
 		$oDocumentModel = getModel('document');
 		$config = $oDocumentModel->getDocumentConfig();
 		Context::set('thumbnail_target', $config->thumbnail_target ?: 'all');
-		Context::set('thumbnail_type', $config->thumbnail_type ?: 'crop');
+		Context::set('thumbnail_type', $config->thumbnail_type ?: 'fill');
 		Context::set('thumbnail_quality', $config->thumbnail_quality ?: 75);
 		if ($config->thumbnail_type === 'none')
 		{
 			Context::set('thumbnail_target', 'none');
-			Context::set('thumbnail_type', 'crop');
+			Context::set('thumbnail_type', 'fill');
 		}
 		
 		// Default and enabled languages
@@ -648,8 +647,8 @@ class adminAdminView extends admin
 		// Meta keywords and description
 		$oModuleModel = getModel('module');
 		$config = $oModuleModel->getModuleConfig('module');
-		Context::set('site_meta_keywords', escape($config->meta_keywords));
-		Context::set('site_meta_description', escape($config->meta_description));
+		Context::set('site_meta_keywords', escape($config->meta_keywords ?? ''));
+		Context::set('site_meta_description', escape($config->meta_description ?? ''));
 		
 		// Titles
 		Context::set('seo_main_title', escape(Rhymix\Framework\Config::get('seo.main_title') ?: '$SITE_TITLE - $SITE_SUBTITLE'));
@@ -661,6 +660,7 @@ class adminAdminView extends admin
 		Context::set('og_extract_description', Rhymix\Framework\Config::get('seo.og_extract_description'));
 		Context::set('og_extract_images', Rhymix\Framework\Config::get('seo.og_extract_images'));
 		Context::set('og_extract_hashtags', Rhymix\Framework\Config::get('seo.og_extract_hashtags'));
+		Context::set('og_use_nick_name', Rhymix\Framework\Config::get('seo.og_use_nick_name'));
 		Context::set('og_use_timestamps', Rhymix\Framework\Config::get('seo.og_use_timestamps'));
 		Context::set('twitter_enabled', Rhymix\Framework\Config::get('seo.twitter_enabled'));
 		
@@ -695,13 +695,14 @@ class adminAdminView extends admin
 		$domain_info = null;
 		if ($domain_srl !== '')
 		{
-			$domain_info = getModel('module')->getSiteInfo($domain_srl);
+			$domain_info = ModuleModel::getSiteInfo($domain_srl);
 			if ($domain_info->domain_srl != $domain_srl)
 			{
 				throw new Rhymix\Framework\Exception('msg_domain_not_found');
 			}
 		}
 		Context::set('domain_info', $domain_info);
+		Context::set('domain_copy', false);
 		
 		// Get modules.
 		if ($domain_info && $domain_info->index_module_srl)
@@ -723,7 +724,7 @@ class adminAdminView extends admin
 		}
 		else
 		{
-			$domain_lang = Rhymix\Framework\Config::get('locale.default_lang');
+			$domain_lang = 'default';
 		}
 		Context::set('domain_lang', $domain_lang);
 		
@@ -753,6 +754,75 @@ class adminAdminView extends admin
 	}
 	
 	/**
+	 * Display domain copy screen
+	 * @return void
+	 */
+	function dispAdminCopyDomain()
+	{
+		// Get selected domain.
+		$domain_srl = strval(Context::get('domain_srl'));
+		$domain_info = ModuleModel::getSiteInfo($domain_srl);
+		if ($domain_info->domain_srl != $domain_srl)
+		{
+			throw new Rhymix\Framework\Exception('msg_domain_not_found');
+		}
+		
+		// Adjust some properties for copying.
+		$domain_info->domain_srl = null;
+		$domain_info->is_default_domain = 'N';
+		Context::set('domain_info', $domain_info);
+		Context::set('domain_copy', true);
+		
+		// Get modules.
+		if ($domain_info && $domain_info->index_module_srl)
+		{
+			$index_module_srl = $domain_info->index_module_srl;
+		}
+		else
+		{
+			$index_module_srl = '';
+		}
+		Context::set('index_module_srl', $index_module_srl);
+		
+		// Get language list.
+		Context::set('supported_lang', Rhymix\Framework\Lang::getSupportedList());
+		Context::set('enabled_lang', Rhymix\Framework\Config::get('locale.enabled_lang'));
+		if ($domain_info && $domain_info->settings->language)
+		{
+			$domain_lang = $domain_info->settings->language;
+		}
+		else
+		{
+			$domain_lang = 'default';
+		}
+		Context::set('domain_lang', $domain_lang);
+		
+		// Get timezone list.
+		Context::set('timezones', Rhymix\Framework\DateTime::getTimezoneList());
+		if ($domain_info && $domain_info->settings->timezone)
+		{
+			$domain_timezone = $domain_info->settings->timezone;
+		}
+		else
+		{
+			$domain_timezone = Rhymix\Framework\Config::get('locale.default_timezone');
+		}
+		Context::set('domain_timezone', $domain_timezone);
+		
+		// Get favicon and images.
+		if ($domain_info)
+		{
+			$oAdminAdminModel = getAdminModel('admin');
+			Context::set('favicon_url', $oAdminAdminModel->getFaviconUrl($domain_srl));
+			Context::set('mobicon_url', $oAdminAdminModel->getMobileIconUrl($domain_srl));
+			Context::set('default_image_url', $oAdminAdminModel->getSiteDefaultImageUrl($domain_srl));
+			Context::set('color_scheme', $domain_info->settings->color_scheme ?? 'auto');
+		}
+		
+		$this->setTemplateFile('config_domains_edit');
+	}
+	
+	/**
 	 * Display FTP Configuration(settings) page
 	 * @return void
 	 */
@@ -770,11 +840,8 @@ class adminAdminView extends admin
 	 */
 	function dispAdminSetup()
 	{
-		$oModuleModel = getModel('module');
-
-		$oAdmin = getClass('admin');
 		$oMenuAdminModel = getAdminModel('menu');
-		$output = $oMenuAdminModel->getMenuByTitle($oAdmin->getAdminMenuName());
+		$output = $oMenuAdminModel->getMenuByTitle($this->getAdminMenuName());
 
 		Context::set('menu_srl', $output->menu_srl);
 		Context::set('menu_title', $output->title);

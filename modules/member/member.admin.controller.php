@@ -75,23 +75,33 @@ class memberAdminController extends member
 			}
 		}
 
-		// Remove some unnecessary variables from all the vars
+		// Get existing extra vars
+		if($args->member_srl)
+		{
+			$output = executeQuery('member.getMemberInfoByMemberSrl', ['member_srl' => $args->member_srl], ['extra_vars']);
+			$extra_vars = ($output->data && $output->data->extra_vars) ? unserialize($output->data->extra_vars) : new stdClass;
+			foreach($this->nouse_extra_vars as $key)
+			{
+				unset($extra_vars->$key);
+			}
+		}
+		else
+		{
+			$extra_vars = new stdClass;
+		}
+		
 		// Get list of extra vars
 		$all_args = Context::getRequestVars();
-		$extra_vars = new stdClass;
 		foreach($config->signupForm as $formInfo)
 		{
-			if (!$formInfo->isDefaultForm && isset($all_args->{$formInfo->name}))
+			if (!$formInfo->isDefaultForm)
 			{
 				$extra_vars->{$formInfo->name} = $all_args->{$formInfo->name};
 			}
 		}
 		foreach($this->admin_extra_vars as $key)
 		{
-			if (isset($all_args->{$key}))
-			{
-				$extra_vars->{$key} = escape(utf8_clean($all_args->{$key}));
-			}
+			$extra_vars->{$key} = escape(utf8_clean($all_args->{$key} ?? ''));
 		}
 		$args->extra_vars = serialize($extra_vars);
 
@@ -143,7 +153,13 @@ class memberAdminController extends member
 			$validity_info = Rhymix\Framework\Session::getValidityInfo($args->member_srl);
 			$validity_info->invalid_before = time();
 			Rhymix\Framework\Session::setValidityInfo($args->member_srl, $validity_info);
-			executeQuery('member.deleteAutologin', (object)array('member_srl' => $args->member_srl));
+			executeQuery('member.deleteAutologin', ['member_srl' => $args->member_srl]);
+		}
+		
+		// Invalidate auth mail if denied or limited
+		if ($args->denied === 'Y' || $args->limited >= date('Ymd'))
+		{
+			executeQuery('member.deleteAuthMail', ['member_srl' => $args->member_srl]);
 		}
 		
 		// Save Signature
@@ -300,6 +316,7 @@ class memberAdminController extends member
 	{
 		$config = new stdClass;
 		$config->agreements = array();
+		$config->agreement = null;
 		
 		$args = Context::getRequestVars();
 		for ($i = 1; $i < 20; $i++)
@@ -320,11 +337,22 @@ class memberAdminController extends member
 			}
 		}
 		
-		// for compatibility with older versions
-		$config->agreement = $config->agreements[1]->content;
-		
 		$oModuleController = getController('module');
 		$output = $oModuleController->updateModuleConfig('member', $config);
+		if (!$output->toBool())
+		{
+			return $output;
+		}
+		
+		// Delete old agreement files.
+		foreach (Context::loadLangSupported() as $key => $val)
+		{
+			$agreement_file = RX_BASEDIR . 'files/member_extra_info/agreement_' . $key . '.txt';
+			if (Rhymix\Framework\Storage::exists($agreement_file))
+			{
+				Rhymix\Framework\Storage::delete($agreement_file);
+			}
+		}
 
 		// default setting end
 		$this->setMessage('success_updated');
@@ -344,11 +372,11 @@ class memberAdminController extends member
 			'limit_day',
 			'limit_day_description',
 			'emailhost_check',
-			'special_phone_number', 'special_phone_code', 'redirect_url',
+			'special_phone_number', 'special_phone_code', 'max_auth_sms_count', 'max_auth_sms_count_time', 'redirect_url',
 			'phone_number_default_country', 'phone_number_hide_country', 'phone_number_allow_duplicate', 'phone_number_verify_by_sms',
-			'profile_image', 'profile_image_max_width', 'profile_image_max_height', 'profile_image_max_filesize',
-			'image_name', 'image_name_max_width', 'image_name_max_height', 'image_name_max_filesize',
-			'image_mark', 'image_mark_max_width', 'image_mark_max_height', 'image_mark_max_filesize',
+			'profile_image_max_width', 'profile_image_max_height', 'profile_image_max_filesize', 'profile_image_force_ratio',
+			'image_name_max_width', 'image_name_max_height', 'image_name_max_filesize',
+			'image_mark_max_width', 'image_mark_max_height', 'image_mark_max_filesize',
 			'signature_editor_skin', 'sel_editor_colorset', 'signature_html', 'signature_html_retroact', 'member_allow_fileupload'
 		);
 
@@ -365,6 +393,8 @@ class memberAdminController extends member
 		{
 			return new BaseObject('-1', 'msg_special_code_incorrect_format');
 		}
+		$args->max_auth_sms_count = max(0, intval($args->max_auth_sms_count));
+		$args->max_auth_sms_count_time = max(0, intval($args->max_auth_sms_count_time));
 		if($args->redirect_url)
 		{
 			$oModuleModel = getModel('module');
@@ -392,14 +422,8 @@ class memberAdminController extends member
 			return new BaseObject('-1', 'msg_need_default_country');
 		}
 		
-		$args->profile_image = $args->profile_image ? 'Y' : 'N';
-		$args->image_name = $args->image_name ? 'Y' : 'N';
-		$args->image_mark = $args->image_mark ? 'Y' : 'N';
-		$args->signature  = $args->signature != 'Y' ? 'N' : 'Y';
-
 		// set default
 		$all_args->is_nick_name_public = 'Y';
-		$all_args->is_find_account_question_public = 'N';
 
 		// signupForm
 		global $lang;
@@ -438,12 +462,17 @@ class memberAdminController extends member
 			$signupItem->required = ($all_args->{$key} == 'required') || $signupItem->mustRequired;
 			$signupItem->isUse = in_array($key, $usable_list) || $signupItem->required;
 			$signupItem->isPublic = ($all_args->{'is_'.$key.'_public'} == 'Y' && $signupItem->isUse) ? 'Y' : 'N';
-
+			
+			if(in_array($key, ['signature', 'profile_image', 'image_name', 'image_mark']))
+			{
+				$args->$key = $signupItem->isPublic;
+			}
 			if($signupItem->imageType)
 			{
 				$signupItem->max_width = $all_args->{$key.'_max_width'};
 				$signupItem->max_height = $all_args->{$key.'_max_height'};
 				$signupItem->max_filesize = $all_args->{$key.'_max_filesize'};
+				$signupItem->force_ratio = $all_args->{$key.'_force_ratio'} === 'N' ? 'N' : 'Y';
 			}
 
 			// set extends form
@@ -809,7 +838,6 @@ class memberAdminController extends member
 
 		$oMemberModel = getModel('member');
 		$config = $oMemberModel->getMemberConfig();
-		unset($config->agreement);
 
 		if($isInsert)
 		{
@@ -845,7 +873,6 @@ class memberAdminController extends member
 
 		$oMemberModel = getModel('member');
 		$config = $oMemberModel->getMemberConfig();
-		unset($config->agreement);
 
 		foreach($config->signupForm as $key=>$val)
 		{
@@ -973,7 +1000,7 @@ class memberAdminController extends member
 
 			foreach($members as $member_srl)
 			{
-				$oCommunicationController->sendMessage($sender_member_srl, $member_srl, $title, $message, false);
+				$oCommunicationController->sendMessage($sender_member_srl, $member_srl, $title, $message, true, null, false);
 			}
 		}
 
@@ -1374,7 +1401,6 @@ class memberAdminController extends member
 		// group image mark option
 		$config = $oMemberModel->getMemberConfig();
 		$config->group_image_mark = $vars->group_image_mark;
-		unset($config->agreement);
 		$output = $oModuleController->updateModuleConfig('member', $config);
 
 		$defaultGroup = $oMemberModel->getDefaultGroup(0);

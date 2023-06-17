@@ -79,6 +79,10 @@ class HTMLFilterTest extends \Codeception\TestCase\Test
 		$source = '<nav>123</nav><section>456</section><article>789</article><aside>0</aside>';
 		$target = '<nav>123</nav><section>456</section><article>789</article><aside>0</aside>';
 		$this->assertEquals($target, Rhymix\Framework\Filters\HTMLFilter::clean($source));
+		
+		$source = '<div contenteditable="true"><div contenteditable="false"><p contenteditable="false"></p></div></div>';
+		$target = '<div><div contenteditable="false"><p></p></div></div>';
+		$this->assertEquals($target, Rhymix\Framework\Filters\HTMLFilter::clean($source));
 	}
 	
 	public function testHTMLFilterCSS3()
@@ -236,5 +240,19 @@ class HTMLFilterTest extends \Codeception\TestCase\Test
 		$source = '<p><img src="foo.jpg" alt="foobar" data-file-srl="javascript:xss()" /></p>';
 		$target = '<p><img src="foo.jpg" alt="foobar" /></p>';
 		$this->assertEquals($target, Rhymix\Framework\Filters\HTMLFilter::clean($source));
+	}
+	
+	public function testHTMLFilterFixMediaUrls()
+	{
+		$baseurl = '/' . basename(dirname(dirname(dirname(dirname(__DIR__))))) . '/';
+		
+		$content = Rhymix\Framework\Filters\HTMLFilter::fixRelativeUrls('<img src="files/attach/foobar.jpg" alt="TEST" />');
+		$this->assertEquals('<img src="https://www.rhymix.org' . $baseurl . 'files/attach/foobar.jpg" alt="TEST" />', $content);
+		$content = Rhymix\Framework\Filters\HTMLFilter::fixRelativeUrls('<img src="./files/attach/foobar.jpg" editor_component="foobar" />');
+		$this->assertEquals('<img src="https://www.rhymix.org' . $baseurl . 'files/attach/foobar.jpg" />', $content);
+		$content = Rhymix\Framework\Filters\HTMLFilter::fixRelativeUrls('<img src="' . $baseurl . 'files/attach/foobar.jpg" id="foobar" data-file-srl="2345" />');
+		$this->assertEquals('<img src="https://www.rhymix.org' . $baseurl . 'files/attach/foobar.jpg" />', $content);
+		$content = Rhymix\Framework\Filters\HTMLFilter::fixRelativeUrls('<img src="//external.site/files/attach/foobar.jpg" alt="TEST" class="zbxe_widget_output" widget="baz" />');
+		$this->assertEquals('<img src="//external.site/files/attach/foobar.jpg" alt="TEST" />', $content);
 	}
 }

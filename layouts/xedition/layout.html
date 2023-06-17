@@ -15,7 +15,7 @@
 	{@ $_selected_menu = null}
 	{@ $_magazine_header = false}
 	{@ $_onepage_header = false}
-	{@ $sub_header_title = $module_info->browser_title}
+	{@ $sub_header_title = $module_info->browser_title ?? ''}
 
 <!--// 초기화 -->
 	{@ $_enable_slide = false}
@@ -153,6 +153,7 @@
 <load target="./css/webfont.css" />
 <load target="./css/xeicon.css" cond="$mid === 'xeicon'" />
 <load target="../../common/xeicon/xeicon.min.css" />
+<load target="../../modules/sociallogin/skins/default/css/default.css" />
 <!--// JS -->
 <load cond="$_enable_slide" target="./js/idangerous.swiper.min.js" />
 <load target="./js/layout.js" />
@@ -219,7 +220,7 @@
 						<!--@if($is_logged)-->
 							<!-- after_login -->
 							<a href="{getUrl('act', 'dispMemberInfo')}" class="login_after">
-								<!--@if($logged_info->profile_image->src)-->
+								<!--@if(!empty($logged_info->profile_image->src))-->
 									<img src="{$logged_info->profile_image->src}" alt="{$logged_info->nick_name}" />
 								<!--@else-->
 									<img src="./img/ico_default.jpg" alt="{$logged_info->nick_name}" />
@@ -355,7 +356,7 @@
 	<!-- BODY -->
 	<div class="body {$_body_class}">
 		<!-- LNB -->
-		<nav cond="$_selected_menu['list'] && $layout_info->layout_type === 'sub' && $layout_info->sidebar_position !== 'none'" class="lnb">
+		<nav cond="isset($_selected_menu['list']) && $_selected_menu['list'] && $layout_info->layout_type === 'sub' && $layout_info->sidebar_position !== 'none'" class="lnb">
 			<ul>
 				<li loop="$_selected_menu['list'] => $key1, $val1">
 					<a href="{$val1['href']}" target="_blank"|cond="$val1['open_window'] == 'Y'">{$val1['link']}</a>
@@ -486,11 +487,17 @@
 							<p>{str_replace('\n\n', '<br />', $lang->about_keep_signed)}</p>
 							<div class="edge"></div>
 						</div>
+						<div class="captcha" cond="isset($captcha) && $captcha && $captcha->isTargetAction('login')">
+							{$captcha}
+						</div>
 						<button type="submit" class="btn_submit">{$lang->cmd_login}</button>
 					</div>
 				</fieldset>
 			</form>
 		</div>
+		<!--@if(!$is_logged && SocialloginModel::isEnabled())-->
+		{SocialloginModel::getSocialloginButtons()}
+		<!--@end-->
 		<div class="login-footer">
 			<a href="{getUrl('act', 'dispMemberFindAccount')}">{$lang->cmd_find_member_account}</a>
 			<span class="f_bar">|</span>

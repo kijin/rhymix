@@ -518,7 +518,7 @@ class editorModel extends editor
 			return new BaseObject(-1, 'msg_component_is_not_founded', $component);
 		}
 
-		if(!self::$_loaded_component_list[$component][$editor_sequence])
+		if(!isset(self::$_loaded_component_list[$component][$editor_sequence]))
 		{
 			// Create an object of the component and execute
 			$class_path = sprintf('./modules/editor/components/%s/', $component);
@@ -532,6 +532,10 @@ class editorModel extends editor
 
 			// Add configuration information
 			$component_info = self::getComponent($component, $site_srl);
+			if ($component_info->enabled !== 'Y')
+			{
+				return new BaseObject(-1, 'msg_component_is_disabled', $component);
+			}
 			$oComponent->setInfo($component_info);
 			self::$_loaded_component_list[$component][$editor_sequence] = $oComponent;
 		}

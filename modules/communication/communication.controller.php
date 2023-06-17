@@ -100,7 +100,7 @@ class communicationController extends communication
 		}
 
 		$receiver_member_info = $oMemberModel->getMemberInfoByMemberSrl($receiver_srl);
-		if($receiver_member_info->member_srl != $receiver_srl)
+		if(!$receiver_member_info->member_srl)
 		{
 			throw new Rhymix\Framework\Exception('msg_not_exists_member');
 		}
@@ -158,11 +158,12 @@ class communicationController extends communication
 	 * @param int $receiver_srl member_srl of receiver_srl
 	 * @param string $title
 	 * @param string $content
-	 * @param boolean $sender_log (default true)
+	 * @param bool $sender_log (default true)
 	 * @param int|null $temp_srl (default null)
+	 * @param bool $use_spamfilter (default true)
 	 * @return Object
 	 */
-	function sendMessage($sender_srl, $receiver_srl, $title, $content, $sender_log = true, $temp_srl = null)
+	function sendMessage($sender_srl, $receiver_srl, $title, $content, $sender_log = true, $temp_srl = null, $use_spamfilter = true)
 	{
 		// Encode the title and content.
 		$title = escape($title, false);
@@ -212,6 +213,7 @@ class communicationController extends communication
 		$trigger_obj->title = $title;
 		$trigger_obj->content = $content;
 		$trigger_obj->sender_log = $sender_log;
+		$trigger_obj->use_spamfilter = $use_spamfilter;
 		$trigger_output = ModuleHandler::triggerCall('communication.sendMessage', 'before', $trigger_obj);
 		if(!$trigger_output->toBool())
 		{
@@ -519,19 +521,26 @@ class communicationController extends communication
 			throw new Rhymix\Framework\Exception('msg_already_friend');
 		}
 
+		// Call trigger (before)
+		$args->friend_group_srl = intval(Context::get('friend_group_srl'));
+		$trigger_output = ModuleHandler::triggerCall('communication.addFriend', 'before', $args);
+		if(!$trigger_output->toBool())
+		{
+			return $trigger_output;
+		}
+		
 		// Variable
-		$args = new stdClass();
 		$args->friend_srl = getNextSequence();
 		$args->list_order = $args->friend_srl * -1;
-		$args->friend_group_srl = Context::get('friend_group_srl');
-		$args->member_srl = $logged_info->member_srl;
-		$args->target_srl = $target_srl;
 		$output = executeQuery('communication.addFriend', $args);
 		if(!$output->toBool())
 		{
 			return $output;
 		}
 
+		// Call trigger (after)
+		$trigger_output = ModuleHandler::triggerCall('communication.addFriend', 'after', $args);
+		
 		$this->add('member_srl', $target_srl);
 		$this->setMessage('success_registed');
 
@@ -627,50 +636,42 @@ class communicationController extends communication
 		}
 
 		$logged_info = Context::get('logged_info');
-		$member_srl = $logged_info->member_srl;
 
 		// Check variables
 		$friend_srl_list = Context::get('friend_srl_list');
-
 		if(!is_array($friend_srl_list))
 		{
 			$friend_srl_list = explode('|@|', $friend_srl_list);
 		}
-
+		$friend_srl_list = array_map(function($str) { return intval(trim($str)); }, $friend_srl_list);
+		$friend_srl_list = array_filter($friend_srl_list, function($friend_srl) { return $friend_srl > 0; });
 		if(!count($friend_srl_list))
 		{
 			throw new Rhymix\Framework\Exception('msg_cart_is_null');
 		}
 
-		$friend_count = count($friend_srl_list);
-		$target = array();
-
-		for($i = 0; $i < $friend_count; $i++)
-		{
-			$friend_srl = (int) trim($friend_srl_list[$i]);
-			if(!$friend_srl)
-			{
-				continue;
-			}
-
-			$target[] = $friend_srl;
-		}
-
-		if(!count($target))
-		{
-			throw new Rhymix\Framework\Exception('msg_cart_is_null');
-		}
-
-		// Delete
+		// Prepare arguments
 		$args = new stdClass();
-		$args->friend_srls = implode(',', $target);
 		$args->member_srl = $logged_info->member_srl;
+		$args->friend_srl_list = $friend_srl_list;
+		
+		// Call trigger (before)
+		$trigger_output = ModuleHandler::triggerCall('communication.deleteFriend', 'before', $args);
+		if(!$trigger_output->toBool())
+		{
+			return $trigger_output;
+		}
+		
+		// Delete
 		$output = executeQuery('communication.deleteFriend', $args);
 		if(!$output->toBool())
 		{
 			return $output;
 		}
 
+		// Call trigger (after)
+		$trigger_output = ModuleHandler::triggerCall('communication.deleteFriend', 'after', $args);
+		
 		$this->setMessage('success_deleted');
 
 		$returnUrl = Context::get('success_return_url') ? Context::get('success_return_url') : getNotEncodedUrl('', 'mid', Context::get('mid'), 'act', 'dispCommunicationFriend');
@@ -689,12 +690,11 @@ class communicationController extends communication
 			throw new Rhymix\Framework\Exceptions\MustLogin;
 		}
 
-		$logged_info = Context::get('logged_info');
+		$friend_group_srl = intval(trim(Context::get('friend_group_srl')));
 
 		// Variables
 		$args = new stdClass();
-		$args->friend_group_srl = trim(Context::get('friend_group_srl'));
-		$args->member_srl = $logged_info->member_srl;
+		$args->member_srl = $this->user->member_srl;
 		$args->title = escape(Context::get('title'));
 
 		if(!$args->title)
@@ -703,12 +703,13 @@ class communicationController extends communication
 		}
 
 		// modify if friend_group_srl exists.
-		if($args->friend_group_srl)
+		if($friend_group_srl)
 		{
+			$args->friend_group_srl = $friend_group_srl;
 			$output = executeQuery('communication.renameFriendGroup', $args);
 			$msg_code = 'success_updated';
-			// add if not exists
 		}
+		// add if not exists
 		else
 		{
 			$output = executeQuery('communication.addFriendGroup', $args);

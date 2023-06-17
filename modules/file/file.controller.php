@@ -158,7 +158,7 @@ class fileController extends file
 		}
 		else
 		{
-			$this->add('download_url', FileModel::getDownloadUrl($output->get('file_srl'), $output->get('sid'), $module_srl));
+			$this->add('download_url', FileModel::getDownloadUrl($output->get('file_srl'), $output->get('sid'), 0, $output->get('source_filename')));
 		}
 	}
 
@@ -198,6 +198,7 @@ class fileController extends file
 		if(is_uploaded_file($file_info['tmp_name'])) {
 			$output = $this->insertFile($file_info, $module_srl, $upload_target_srl);
 			Context::set('uploaded_fileinfo',$output);
+			Context::set('module_srl', $module_srl);
 		}
 
 		Context::set('layout','none');
@@ -287,18 +288,24 @@ class fileController extends file
 
 		$file_srl = Context::get('file_srl');
 		$sid = Context::get('sid');
-		$logged_info = Context::get('logged_info');
+		$filename_arg = Context::get('filename');
+
 		// Get file information from the DB
 		$file_obj = FileModel::getFile($file_srl);
+		$filename = preg_replace('/\.\.+/', '.', $file_obj->source_filename);
+
 		// If the requested file information is incorrect, an error that file cannot be found appears
 		if($file_obj->file_srl != $file_srl || $file_obj->sid !== $sid)
 		{
 			throw new Rhymix\Framework\Exceptions\TargetNotFound('msg_file_not_found');
 		}
-		// File name
-		$filename = $file_obj->source_filename;
-		$file_module_config = FileModel::getFileModuleConfig($file_obj->module_srl);
+		if ($filename_arg !== null && $filename_arg !== $filename)
+		{
+			throw new Rhymix\Framework\Exceptions\TargetNotFound('msg_file_not_found');
+		}
+		
 		// Not allow the file outlink
+		$file_module_config = FileModel::getFileConfig($file_obj->module_srl);
 		if($file_module_config->allow_outlink == 'N' && $_SERVER["HTTP_REFERER"])
 		{
 			// Handles extension to allow outlink
@@ -390,7 +397,7 @@ class fileController extends file
 		}
 		else
 		{
-			$url = getNotEncodedUrl('', 'act', 'procFileOutput', 'file_srl', $file_srl, 'file_key', $file_key, 'force_download', Context::get('force_download') === 'Y' ? 'Y' : null);
+			$url = getNotEncodedUrl('', 'module', 'file', 'act', 'procFileOutput', 'file_srl', $file_srl, 'file_key', $file_key, 'force_download', Context::get('force_download') === 'Y' ? 'Y' : null);
 		}
 		header('Location: ' . $url);
 		Context::close();
@@ -417,7 +424,7 @@ class fileController extends file
 			throw new Rhymix\Framework\Exceptions\InvalidRequest;
 		}
 		$file_key_timestamp = hexdec(substr($file_key, 0, 8));
-		if ($file_key_timestamp < \RX_TIME - 3600)
+		if ($file_key_timestamp < \RX_TIME - 300)
 		{
 			throw new Rhymix\Framework\Exceptions\InvalidRequest('msg_file_key_expired');
 		}
@@ -425,6 +432,12 @@ class fileController extends file
 		if (!\Rhymix\Framework\Security::verifySignature($file_key_data, substr($file_key, 8)))
 		{
 			throw new Rhymix\Framework\Exceptions\InvalidRequest;
+		}
+		
+		// Check filename if given
+		if ($filename_arg !== null && $filename_arg !== $filename)
+		{
+			throw new Rhymix\Framework\Exceptions\TargetNotFound('msg_file_not_found');
 		}
 		
 		// Check if file exists
@@ -449,7 +462,7 @@ class fileController extends file
 		}
 
 		// Encode the filename.
-		if ($filename_arg && $filename_arg === $filename)
+		if ($filename_arg !== null && $filename_arg === $filename)
 		{
 			$filename_param = '';
 		}
@@ -946,7 +959,7 @@ class fileController extends file
 		if(!$output->toBool())
 		{
 			$oDB->rollback();
-			$this->deleteFile($args);
+			$this->deleteFile(array($args));
 			return $output;
 		}
 		
@@ -963,7 +976,7 @@ class fileController extends file
 			if(!$output->toBool())
 			{
 				$oDB->rollback();
-				$this->deleteFile($args);
+				$this->deleteFile(array($args));
 				return $output;
 			}
 		}
@@ -1148,7 +1161,7 @@ class fileController extends file
 				if ($result)
 				{
 					$thumbnail_name = $file_info['tmp_name'] . '.thumbnail.jpg';
-					if (FileHandler::createImageFile($file_info['tmp_name'], $thumbnail_name, $adjusted['width'], $adjusted['height'], 'jpg', 'crop', $adjusted['quality']))
+					if (FileHandler::createImageFile($file_info['tmp_name'], $thumbnail_name, $adjusted['width'], $adjusted['height'], 'jpg', 'fill', $adjusted['quality']))
 					{
 						$file_info['thumbnail'] = $thumbnail_name;
 					}
@@ -1156,7 +1169,7 @@ class fileController extends file
 			}
 			else
 			{
-				$result = FileHandler::createImageFile($file_info['tmp_name'], $output_name, $adjusted['width'], $adjusted['height'], $adjusted['type'], 'crop', $adjusted['quality'], $adjusted['rotate']);
+				$result = FileHandler::createImageFile($file_info['tmp_name'], $output_name, $adjusted['width'], $adjusted['height'], $adjusted['type'], 'fill', $adjusted['quality'], $adjusted['rotate']);
 			}
 			
 			// Change to information in the output file
@@ -1227,7 +1240,7 @@ class fileController extends file
 			$thumbnail_name = $file_info['tmp_name'] . '.thumbnail.jpeg';
 			$command = \RX_WINDOWS ? escapeshellarg($config->ffmpeg_command) : $config->ffmpeg_command;
 			$command .= sprintf(' -ss 00:00:00.%d -i %s -vframes 1', mt_rand(0, 99), escapeshellarg($file_info['tmp_name']));
-			$command .= ' -nostdin -i ' . escapeshellarg($thumbnail_name);
+			$command .= ' -nostdin ' . escapeshellarg($thumbnail_name);
 			@exec($command, $output, $return_var);
 			if ($return_var === 0)
 			{

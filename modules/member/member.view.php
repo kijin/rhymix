@@ -141,9 +141,9 @@ class memberView extends member
 					$target = $memberInfo->image_mark;
 					$item->value = '<img src="'.$target->src.'" alt="' . lang('member.image_mark') . '" />';
 				}
-				elseif($formInfo->name == 'birthday' && $memberInfo->birthday)
+				elseif($formInfo->name == 'birthday' && $memberInfo->birthday && preg_match('/^[0-9]{8}/', $item->value))
 				{
-					$item->value = zdate($item->value, 'Y-m-d');
+					$item->value = sprintf('%s-%s-%s', substr($item->value, 0, 4), substr($item->value, 4, 2), substr($item->value, 6, 2));
 				}
 				elseif($formInfo->name == 'phone_number' && $memberInfo->phone_number)
 				{
@@ -159,8 +159,8 @@ class memberView extends member
 			}
 			else
 			{
-				$item->title = $extendFormInfo[$formInfo->member_join_form_srl]->column_title;
-				$orgValue = $extendFormInfo[$formInfo->member_join_form_srl]->value;
+				$item->title = $extendFormInfo[$formInfo->member_join_form_srl]->column_title ?? null;
+				$orgValue = $extendFormInfo[$formInfo->member_join_form_srl]->value ?? null;
 				if($formInfo->type=='tel' && is_array($orgValue))
 				{
 					$item->value = implode('-', $orgValue);
@@ -175,11 +175,15 @@ class memberView extends member
 				}
 				elseif($formInfo->type=='date')
 				{
-					$item->value = zdate($orgValue, "Y-m-d");
+					$item->value = is_array($orgValue) ? array_first($orgValue) : $orgValue;
+					if (preg_match('/^[0-9]{8}/', $item->value))
+					{
+						$item->value = sprintf('%s-%s-%s', substr($item->value, 0, 4), substr($item->value, 4, 2), substr($item->value, 6, 2));
+					}
 				}
 				else
 				{
-					$item->value = nl2br($orgValue);
+					$item->value = nl2br(is_array($orgValue) ? array_first($orgValue) : $orgValue);
 				}
 			}
 
@@ -211,19 +215,50 @@ class memberView extends member
 		if($member_config->enable_join != 'Y') throw new Rhymix\Framework\Exceptions\FeatureDisabled('msg_signup_disabled');
 		
 		$formTags = getAdminView('member')->_getMemberInputTag();
-		Context::set('formTags', $formTags);
-		Context::set('email_confirmation_required', $member_config->enable_confirm);
-		
+
+		if($_SESSION['tmp_sociallogin_input_add_info'])
+		{
+			foreach ($formTags as $key => $formtag)
+			{
+				if($_SESSION['tmp_sociallogin_input_add_info']['nick_name'])
+				{
+					if($formtag->name == 'user_id')
+					{
+						unset($formTags[$key]);
+					}
+					
+					if($formtag->name == 'user_name')
+					{
+						unset($formTags[$key]);
+					}
+
+					if($formtag->name == 'nick_name')
+					{
+						unset($formTags[$key]);
+					}
+				}
+			}
+		}
+
+		$identifierForm = new stdClass;
+		$identifierForm->title = lang($member_config->identifier);
+		$identifierForm->name = $member_config->identifier;
+		$identifierForm->show = true;
+		if(isset($_SESSION['tmp_sociallogin_input_add_info']['email_address']))
+		{
+			$identifierForm->show = false;
+		}
+
 		// Editor of the module set for signing by calling getEditor
 		foreach($formTags as $formTag)
 		{
 			if($formTag->name == 'signature')
 			{
-				$option = new stdClass;
+				$option = ModuleModel::getModuleConfig('editor') ?: new stdClass;
 				$option->primary_key_name = 'member_srl';
 				$option->content_key_name = 'signature';
 				$option->allow_html = $member_config->signature_html !== 'N';
-				$option->allow_fileupload = false;
+				$option->allow_fileupload = $member_config->member_allow_fileupload === 'Y';
 				$option->enable_autosave = false;
 				$option->enable_default_component = true;
 				$option->enable_component = false;
@@ -234,17 +269,23 @@ class memberView extends member
 				$option->editor_toolbar_hide = 'Y';
 				$option->editor_skin = $member_config->signature_editor_skin;
 				$option->sel_editor_colorset = $member_config->sel_editor_colorset;
+				if (!$option->allow_html)
+				{
+					$option->editor_skin = 'textarea';
+				}
 				
 				Context::set('editor', getModel('editor')->getEditor(0, $option));
 			}
 		}
-		
-		$identifierForm = new stdClass;
-		$identifierForm->title = lang($member_config->identifier);
-		$identifierForm->name = $member_config->identifier;
+
+		Context::set('formTags', $formTags);
+		Context::set('email_confirmation_required', $member_config->enable_confirm);
 		Context::set('identifierForm', $identifierForm);
-		
+
 		$this->addExtraFormValidatorMessage();
+		
+		// Set a copy of the agreement for compatibility with old skins
+		$member_config->agreement = $member_config->agreements[1]->content ?? '';
 		
 		// Set a template file
 		$this->setTemplateFile('signup_form');
@@ -260,6 +301,8 @@ class memberView extends member
 
 		$_SESSION['rechecked_password_step'] = 'INPUT_PASSWORD';
 
+		Context::set('member_sns_list', SocialloginModel::getMemberSnsList(\Rhymix\Framework\Session::getMemberSrl(), 'recheck'));
+		
 		$templateFile = $this->getTemplatePath().'rechecked_password.html';
 		if(!is_readable($templateFile))
 		{
@@ -315,7 +358,7 @@ class memberView extends member
 		{
 			if($formTag->name == 'signature')
 			{
-				$option = new stdClass;
+				$option = ModuleModel::getModuleConfig('editor') ?: new stdClass;
 				$option->primary_key_name = 'member_srl';
 				$option->content_key_name = 'signature';
 				$option->allow_html = $member_config->signature_html !== 'N';
@@ -330,6 +373,10 @@ class memberView extends member
 				$option->editor_toolbar_hide = 'Y';
 				$option->editor_skin = $member_config->signature_editor_skin;
 				$option->sel_editor_colorset = $member_config->sel_editor_colorset;
+				if (!$option->allow_html)
+				{
+					$option->editor_skin = 'textarea';
+				}
 				
 				Context::set('editor', getModel('editor')->getEditor($member_info->member_srl, $option));
 			}
@@ -596,9 +643,18 @@ class memberView extends member
 	 */
 	function dispMemberLoginForm()
 	{
+		// Get referer URL
+		$referer_url = Context::get('referer_url') ?: ($_SERVER['HTTP_REFERER'] ?? '');
+		if (!$referer_url || !Rhymix\Framework\URL::isInternalURL($referer_url) || contains('procMember', $referer_url) || contains('dispMemberLoginForm', $referer_url))
+		{
+			$referer_url = getNotEncodedUrl('act', '');
+		}
+		Context::set('referer_url', $referer_url);
+		
+		// Return to previous screen if already logged in.
 		if(Context::get('is_logged'))
 		{
-			$this->setRedirectUrl(getNotEncodedUrl('act',''));
+			$this->setRedirectUrl($referer_url);
 			return;
 		}
 
@@ -606,20 +662,12 @@ class memberView extends member
 		$config = $this->member_config;
 		Context::set('identifier', $config->identifier);
 
+		// Get validator status
 		$XE_VALIDATOR_MESSAGE = Context::get('XE_VALIDATOR_MESSAGE');
 		$XE_VALIDATOR_ERROR = Context::get('XE_VALIDATOR_ERROR');
 		if($XE_VALIDATOR_ERROR == -11)
 		{
 			Context::set('XE_VALIDATOR_MESSAGE', $XE_VALIDATOR_MESSAGE . $config->limit_day_description);
-		}
-
-		if(strpos(Context::get('referer_url'), 'procMember') !== false || ($XE_VALIDATOR_ERROR < -10 && $XE_VALIDATOR_ERROR > -21))
-		{
-			Context::set('referer_url', getUrl(''));
-		}
-		else
-		{
-			Context::set('referer_url', escape($_SERVER['HTTP_REFERER']));
 		}
 
 		// Set a template file
@@ -643,6 +691,8 @@ class memberView extends member
 		$member_info = MemberModel::getMemberInfoByMemberSrl($member_srl, 0, $columnList);
 		Context::set('member_info',$member_info);
 
+		Context::set('member_sns_list', SocialloginModel::getMemberSnsList(Rhymix\Framework\Session::getMemberSrl(), 'modify_password'));
+		
 		if($memberConfig->identifier == 'user_id')
 		{
 			Context::set('identifier', 'user_id');
@@ -692,13 +742,15 @@ class memberView extends member
 	 */
 	function dispMemberLogout()
 	{
-		$output = MemberController::getInstance()->procMemberLogout();
-		if(!$output->redirect_url)
+		// Redirect if not logged in.
+		if(!Context::get('is_logged'))
+		{
 			$this->setRedirectUrl(getNotEncodedUrl('act', ''));
-		else
-			$this->setRedirectUrl($output->redirect_url);
-
-		return;
+			return;
+		}
+		
+		$output = MemberController::getInstance()->procMemberLogout();
+		$this->setRedirectUrl(isset($output->redirect_url) ? $output->redirect_url : getNotEncodedUrl('act', ''));
 	}
 
 	/**

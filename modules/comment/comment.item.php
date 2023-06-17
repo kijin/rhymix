@@ -146,11 +146,67 @@ class commentItem extends BaseObject
 		$this->setGrant();
 	}
 	
-	function isAccessible()
+	/**
+	 * Return the status code.
+	 * 
+	 * @return string
+	 */
+	public function getStatus()
+	{
+		switch ($this->get('status'))
+		{
+			case RX_STATUS_TEMP: return 'TEMP';
+			case RX_STATUS_PUBLIC: return $this->get('is_secret') !== 'Y' ? 'PUBLIC' : 'SECRET';
+			case RX_STATUS_SECRET: return 'SECRET';
+			case RX_STATUS_EMBARGO: return 'EMBARGO';
+			case RX_STATUS_TRASH: return 'TRASH';
+			case RX_STATUS_CENSORED: return 'CENSORED';
+			case RX_STATUS_CENSORED_BY_ADMIN: return 'CENSORED_BY_ADMIN';
+			case RX_STATUS_DELETED: return 'DELETED';
+			case RX_STATUS_DELETED_BY_ADMIN: return 'DELETED_BY_ADMIN';
+			case RX_STATUS_OTHER: return 'OTHER';
+			default: return 'OTHER';
+		}
+	}
+
+	/**
+	 * Return the status in human-readable text.
+	 * 
+	 * @return string
+	 */
+	public function getStatusText()
+	{
+		$status = $this->getStatus();
+		$statusList = lang('document.status_name_list');
+		if ($status && isset($statusList[$status]))
+		{
+			return $statusList[$status];
+		}
+		else
+		{
+			return $statusList['OTHER'];
+		}
+	}
+
+	function isAccessible($strict = false)
 	{
 		if(!$this->isExists())
 		{
 			return false;
+		}
+		
+		if ($strict)
+		{
+			$module_info = ModuleModel::getModuleInfoByModuleSrl($this->get('module_srl'));
+			if (!$module_info)
+			{
+				return false;
+			}
+			$grant = ModuleModel::getGrant($module_info, Context::get('logged_info'));
+			if (isset($grant->list) && isset($grant->view) && ($grant->list !== true || $grant->view !== true))
+			{
+				return false;
+			}
 		}
 		
 		if (isset($_SESSION['accessible'][$this->comment_srl]) && $_SESSION['accessible'][$this->comment_srl] === $this->get('last_update'))
@@ -195,7 +251,7 @@ class commentItem extends BaseObject
 	
 	function isSecret()
 	{
-		return $this->get('is_secret') == 'Y';
+		return $this->get('status') == RX_STATUS_SECRET || $this->get('is_secret') == 'Y';
 	}
 	
 	function isDeleted()
@@ -254,7 +310,7 @@ class commentItem extends BaseObject
 
 		// send a message
 		$oCommunicationController = getController('communication');
-		$oCommunicationController->sendMessage($sender_member_srl, $receiver_srl, $title, $content, FALSE);
+		$oCommunicationController->sendMessage($sender_member_srl, $receiver_srl, $title, $content, false, null, false);
 	}
 
 	function getIpAddress()
@@ -330,7 +386,15 @@ class commentItem extends BaseObject
 		if(!$logged_info->member_srl) return false;
 
 		$args = new stdClass();
-		$args->member_srl = $logged_info->member_srl;
+		if($logged_info->member_srl)
+		{
+			$args->member_srl = $logged_info->member_srl;
+		}
+		else
+		{
+			$args->member_srl = 0;
+			$args->ipaddress = \RX_CLIENT_IP;
+		}
 		$args->comment_srl = $this->comment_srl;
 		$output = executeQuery('comment.getCommentVotedLog', $args);
 
@@ -656,7 +720,11 @@ class commentItem extends BaseObject
 		}
 		
 		// If signiture height setting is omitted, create a square
-		if(!$height)
+		if(!is_int($width))
+		{
+			$width = intval($width);
+		}
+		if(!$height || (!is_int($height) && !ctype_digit(strval($height)) && $height !== 'auto'))
 		{
 			$height = $width;
 		}
@@ -665,7 +733,7 @@ class commentItem extends BaseObject
 		$thumbnail_path = sprintf('files/thumbnails/%s', getNumberingPath($this->comment_srl, 3));
 		$thumbnail_file = sprintf('%s%dx%d.%s.jpg', $thumbnail_path, $width, $height, $thumbnail_type);
 		$thumbnail_lockfile = sprintf('%s%dx%d.%s.lock', $thumbnail_path, $width, $height, $thumbnail_type);
-		$thumbnail_url = Context::getRequestUri() . $thumbnail_file;
+		$thumbnail_url = RX_BASEURL . $thumbnail_file;
 		$thumbnail_file = RX_BASEDIR . $thumbnail_file;
 
 		// return false if a size of existing thumbnail file is 0. otherwise return the file path
@@ -720,7 +788,7 @@ class commentItem extends BaseObject
 
 				if($file->cover_image === 'Y' && file_exists($file->uploaded_filename))
 				{
-					$source_file = $file->uploaded_filename;
+					$source_file = FileHandler::getRealPath($file->uploaded_filename);
 					break;
 				}
 
@@ -737,13 +805,15 @@ class commentItem extends BaseObject
 
 			if(!$source_file && $first_image)
 			{
-				$source_file = $first_image;
+				$source_file = FileHandler::getRealPath($first_image);
 			}
 		}
 
 		// get an image file from the doc content if no file attached. 
 		if(!$source_file && $config->thumbnail_target !== 'attachment')
 		{
+			$external_image_min_width = min(100, round($trigger_obj->width * 0.3));
+			$external_image_min_height = min(100, round($trigger_obj->height * 0.3));
 			preg_match_all("!<img\s[^>]*?src=(\"|')([^\"' ]*?)(\"|')!is", $this->get('content'), $matches, PREG_SET_ORDER);
 			foreach($matches as $match)
 			{
@@ -774,7 +844,7 @@ class commentItem extends BaseObject
 						if($is_img = @getimagesize($tmp_file))
 						{
 							list($_w, $_h, $_t, $_a) = $is_img;
-							if($_w < ($width * 0.3) && $_h < ($height * 0.3))
+							if($_w < ($external_image_min_width) && ($height === 'auto' || $_h < ($external_image_min_height)))
 							{
 								continue;
 							}

@@ -79,7 +79,7 @@ class FrontEndFileHandler extends Handler
 	 * case css
 	 * 		$args[0]: file name
 	 * 		$args[1]: media
-	 * 		$args[2]: target IE
+	 * 		$args[2]: target IE / source type hint
 	 * 		$args[3]: index
 	 * 		$args[4]: vars for LESS and SCSS
 	 * </pre>
@@ -114,6 +114,20 @@ class FrontEndFileHandler extends Handler
 			}
 		}
 		
+		if (isset($args[2]) && preg_match('/IE/i', $args[2]))
+		{
+			$source_hint = '';
+		}
+		elseif (isset($args[2]) && $args[2] !== '')
+		{
+			$source_hint = $args[2];
+			$args[2] = '';
+		}
+		else
+		{
+			$source_hint = '';
+		}
+		
 		$file = $this->getFileInfo($args[0], $args[2] ?? '', $args[1] ?? 'all', $args[4] ?? [], $isCommon);
 		$file->index = (int)($args[3] ?? 0);
 
@@ -128,7 +142,7 @@ class FrontEndFileHandler extends Handler
 			$map = &$this->cssMap;
 			$mapIndex = &$this->cssMapIndex;
 
-			$this->_arrangeCssIndex($file->fileRealPath, $file);
+			$this->_arrangeCssIndex($file->fileRealPath, $file, $source_hint);
 		}
 		else if($file->fileExtension == 'js')
 		{
@@ -298,11 +312,47 @@ class FrontEndFileHandler extends Handler
 		$compiledFileName = $file->fileName . ($minify ? '.min' : '') . '.css';
 		$compiledFileHash = sha1($file->fileRealPath . ':' . serialize($file->vars));
 		$compiledFilePath = \RX_BASEDIR . self::$assetdir . '/compiled/' . $compiledFileHash . '.' . $compiledFileName;
+
+		$importedFileName = $file->fileName . ($minify ? '.min' : '') . '.imports.php';
+		$importedFilePath = \RX_BASEDIR . self::$assetdir . '/compiled/' . $compiledFileHash . '.' . $importedFileName;
 		
-		if (!file_exists($compiledFilePath) || filemtime($compiledFilePath) < filemtime($file->fileFullPath))
+		if (!file_exists($compiledFilePath))
+		{
+			$recompile = 1;
+		}
+		else
+		{
+			$compiledTime = filemtime($compiledFilePath);
+			if ($compiledTime < filemtime($file->fileFullPath))
+			{
+				$recompile = 2;
+			}
+			else
+			{
+				$checklist = Rhymix\Framework\Storage::readPHPData($importedFilePath);
+				if (is_array($checklist))
+				{
+					$recompile = 0;
+					foreach ($checklist as $filename)
+					{
+						if (!file_exists($filename) || filemtime($filename) > $compiledTime)
+						{
+							$recompile = 3;
+							break;
+						}
+					}
+				}
+				else
+				{
+					$recompile = 4;
+				}
+			}
+		}
+		
+		if ($recompile)
 		{
 			$method_name = 'compile' . $file->fileExtension;
-			$success = Rhymix\Framework\Formatter::$method_name($file->fileFullPath, $compiledFilePath, $file->vars, $minify);
+			Rhymix\Framework\Formatter::$method_name($file->fileFullPath, $compiledFilePath, $file->vars, $minify);
 		}
 		
 		$file->fileName = $compiledFileHash . '.' . $compiledFileName;
@@ -435,7 +485,9 @@ class FrontEndFileHandler extends Handler
 					$concat_filename = self::$assetdir . '/combined/' . sha1(serialize($concat_files)) . '.css';
 					if (!file_exists(\RX_BASEDIR . $concat_filename) || filemtime(\RX_BASEDIR . $concat_filename) < $concat_max_timestamp)
 					{
-						Rhymix\Framework\Storage::write(\RX_BASEDIR . $concat_filename, Rhymix\Framework\Formatter::concatCSS($concat_files, $concat_filename));
+						$concat_content = Rhymix\Framework\Formatter::concatCSS($concat_files, $concat_filename);
+						$concat_content = '@charset "UTF-8";' . "\n\n" . preg_replace('/@charset\s*[\'"][a-z0-9-]+[\'"];\s*/i', '', $concat_content);
+						Rhymix\Framework\Storage::write(\RX_BASEDIR . $concat_filename, $concat_content);
 					}
 					$concat_filename .= '?' . date('YmdHis', filemtime(\RX_BASEDIR . $concat_filename));
 					$result[] = array('file' => \RX_BASEURL . $concat_filename, 'media' => 'all', 'targetie' => '');
@@ -665,24 +717,32 @@ class FrontEndFileHandler extends Handler
 	 *
 	 * @param string $dirname
 	 * @param object $file
+	 * @param string $hint
 	 * @return void
 	 */
-	protected function _arrangeCssIndex($dirname, $file)
+	protected function _arrangeCssIndex($dirname, $file, $hint = '')
 	{
 		if ($file->index < -100000)
 		{
 			return;
 		}
 		
-		$dirname = substr($dirname, strlen(\RX_BASEDIR));
-		if (strncmp($dirname, self::$assetdir . '/', strlen(self::$assetdir) + 1) === 0)
+		if ($hint)
 		{
-			$dirname = substr($dirname, strlen(self::$assetdir) + 1);
+			$tmp = $hint;
 		}
-		$tmp = array_first(explode('/', strtr($dirname, '\\.', '//')));
+		else
+		{
+			$dirname = substr($dirname, strlen(\RX_BASEDIR));
+			if (strncmp($dirname, self::$assetdir . '/', strlen(self::$assetdir) + 1) === 0)
+			{
+				$dirname = substr($dirname, strlen(self::$assetdir) + 1);
+			}
+			$tmp = array_first(explode('/', strtr($dirname, '\\.', '//')));
+		}
 		if ($tmp)
 		{
-			$cssSortList = array('common' => -100000, 'layouts' => -90000, 'modules' => -80000, 'widgets' => -70000, 'addons' => -60000);
+			$cssSortList = array('common' => -100000, 'layouts' => -90000, 'm.layouts' => -90000, 'modules' => -80000, 'widgets' => -70000, 'addons' => -60000);
 			$file->index += isset($cssSortList[$tmp]) ? $cssSortList[$tmp] : 0;
 		}
 	}

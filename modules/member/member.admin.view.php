@@ -164,7 +164,20 @@ class memberAdminView extends member
 	 */
 	public function dispMemberAdminConfig()
 	{
-		Context::set('password_hashing_algos', Rhymix\Framework\Password::getSupportedAlgorithms());
+		// Get supported password algorithms.
+		$oDB = DB::getInstance();
+		$column_info = $oDB->getColumnInfo('member', 'password');
+		$password_maxlength = intval($column_info->size);
+		$password_algos = Rhymix\Framework\Password::getSupportedAlgorithms();
+		if ($password_maxlength < 128 && isset($password_algos['sha512']))
+		{
+			$password_algos['sha512'] = false;
+		}
+		if ($password_maxlength < 64 && isset($password_algos['sha256']))
+		{
+			$password_algos['sha256'] = false;
+		}
+		Context::set('password_hashing_algos', $password_algos);
 		
 		$this->setTemplateFile('default_config');
 	}
@@ -384,7 +397,13 @@ class memberAdminView extends member
 		Context::set('member_config', $member_config);
 		$extendForm = $oMemberModel->getCombineJoinForm($this->memberInfo);
 		Context::set('extend_form_list', $extendForm);
-		$memberInfo = get_object_vars(Context::get('member_info'));
+		
+		$memberInfo = Context::get('member_info');
+		if(!is_object($memberInfo) || !$memberInfo->member_srl)
+		{
+			throw new Rhymix\Framework\Exceptions\TargetNotFound();
+		}
+		$memberInfo = get_object_vars($memberInfo);
 		if (!is_array($memberInfo['group_list'])) $memberInfo['group_list'] = array();
 		Context::set('memberInfo', $memberInfo);
 
@@ -592,9 +611,13 @@ class memberAdminView extends member
 					else if($formInfo->name == 'birthday')
 					{
 						$formTag->type = 'date';
-						$inputTag = sprintf('<input type="hidden" name="birthday" id="date_birthday" value="%s" /><input type="date" placeholder="YYYY-MM-DD" name="birthday_ui" class="inputDate" id="birthday" value="%s" min="' . date('Y-m-d',strtotime('-200 years')) . '"  max="' . date('Y-m-d',strtotime('+10 years')) . '" onchange="jQuery(\'#date_birthday\').val(this.value.replace(/-/g,\'\'));" readonly="readonly" /> <input type="button" value="%s" class="btn dateRemover" />',
+						$inputTag = sprintf('<input type="hidden" name="birthday" id="date_birthday" value="%s" />' .
+							'<input type="date" placeholder="YYYY-MM-DD" name="birthday_ui" class="inputDate" id="birthday" value="%s" ' .
+							'min="' . date('Y-m-d',strtotime('-200 years')) . '"  max="' . date('Y-m-d',strtotime('+10 years')) . '" ' .
+							'onchange="jQuery(\'#date_birthday\').val(this.value.replace(/-/g,\'\'));" readonly="readonly" /> ' .
+							'<input type="button" value="%s" class="btn dateRemover" />',
 							$memberInfo['birthday'],
-							zdate($memberInfo['birthday'], 'Y-m-d', false),
+							$memberInfo['birthday'] ? sprintf('%s-%s-%s', substr($memberInfo['birthday'], 0, 4), substr($memberInfo['birthday'], 4, 2), substr($memberInfo['birthday'], 6, 2)) : '',
 							$lang->cmd_delete);
 					}
 					else if($formInfo->name == 'find_account_question')
@@ -689,37 +712,37 @@ class memberAdminView extends member
 					$formTag->type = $extendForm->column_type;
 					if($extendForm->column_type == 'text')
 					{
-						$template = '<input type="text" name="%column_name%" id="%column_name%" value="%value%" />';
+						$template = '<input type="text" class="rx_ev_text" name="%column_name%" id="%column_name%" value="%value%" />';
 					}
 					else if($extendForm->column_type == 'homepage')
 					{
-						$template = '<input type="url" name="%column_name%" id="%column_name%" value="%value%" />';
+						$template = '<input type="url" class="rx_ev_url" name="%column_name%" id="%column_name%" value="%value%" />';
 					}
 					else if($extendForm->column_type == 'email_address')
 					{
-						$template = '<input type="email" name="%column_name%" id="%column_name%" value="%value%" />';
+						$template = '<input type="email" class="rx_ev_email" name="%column_name%" id="%column_name%" value="%value%" />';
 					}
 					else if($extendForm->column_type == 'tel')
 					{
 						$extentionReplace = array('tel_0' => $extendForm->value[0],
 							'tel_1' => $extendForm->value[1],
 							'tel_2' => $extendForm->value[2]);
-						$template = '<input type="tel" name="%column_name%[]" id="%column_name%" value="%tel_0%" size="4" maxlength="4" style="width:30px" title="First Number" /> - <input type="tel" name="%column_name%[]" value="%tel_1%" size="4" maxlength="4" style="width:35px" title="Second Number" /> - <input type="tel" name="%column_name%[]" value="%tel_2%" size="4" maxlength="4" style="width:35px" title="Third Number" />';
+						$template = '<input type="tel" class="rx_ev_tel1" name="%column_name%[]" id="%column_name%" value="%tel_0%" size="4" maxlength="4" style="width:30px" title="First Number" /> - <input type="tel" class="rx_ev_tel2" name="%column_name%[]" value="%tel_1%" size="4" maxlength="4" style="width:35px" title="Second Number" /> - <input type="tel" class="rx_ev_tel3" name="%column_name%[]" value="%tel_2%" size="4" maxlength="4" style="width:35px" title="Third Number" />';
 					}
 					else if($extendForm->column_type == 'textarea')
 					{
-						$template = '<textarea name="%column_name%" id="%column_name%" rows="4" cols="42">%value%</textarea>';
+						$template = '<textarea class="rx_ev_textarea" name="%column_name%" id="%column_name%" rows="4" cols="42">%value%</textarea>';
 					}
 					else if($extendForm->column_type == 'password')
 					{
-						$template = '<input type="password" name="%column_name%" id="%column_name%" value="%value%" />';
+						$template = '<input type="password" class="rx_ev_password" name="%column_name%" id="%column_name%" value="%value%" />';
 					}
 					else if($extendForm->column_type == 'checkbox')
 					{
 						$template = '';
 						if($extendForm->default_value)
 						{
-							$template = '<div style="padding-top:5px">%s</div>';
+							$template = '<div class="rx_ev_checkbox" style="padding-top:5px">%s</div>';
 							$__i = 0;
 							$optionTag = array();
 							foreach($extendForm->default_value as $v)
@@ -737,7 +760,7 @@ class memberAdminView extends member
 						$template = '';
 						if($extendForm->default_value)
 						{
-							$template = '<div style="padding-top:5px">%s</div>';
+							$template = '<div class="rx_ev_radio" style="padding-top:5px">%s</div>';
 							$optionTag = array();
 							foreach($extendForm->default_value as $v)
 							{
@@ -750,7 +773,7 @@ class memberAdminView extends member
 					}
 					else if($extendForm->column_type == 'select')
 					{
-						$template = '<select name="'.$formInfo->name.'" id="'.$formInfo->name.'">%s</select>';
+						$template = '<select class="rx_ev_select" name="'.$formInfo->name.'" id="'.$formInfo->name.'">%s</select>';
 						$optionTag = array();
 						$optionTag[] = sprintf('<option value="">%s</option>', $lang->cmd_select);
 						if($extendForm->default_value)
@@ -778,8 +801,12 @@ class memberAdminView extends member
 					}
 					else if($extendForm->column_type == 'date')
 					{
-						$extentionReplace = array('date' => zdate($extendForm->value, 'Y-m-d'), 'cmd_delete' => $lang->cmd_delete);
-						$template = '<input type="hidden" name="%column_name%" id="date_%column_name%" value="%value%" /><input type="date" placeholder="YYYY-MM-DD" class="inputDate" value="%date%" onchange="jQuery(\'#date_%column_name%\').val(this.value.replace(/-/g,\'\'));" readonly="readonly" /> <input type="button" value="%cmd_delete%" class="btn dateRemover" />';
+						$formattedValue = $extendForm->value ? sprintf('%s-%s-%s', substr($extendForm->value, 0, 4), substr($extendForm->value, 4, 2), substr($extendForm->value, 6, 2)) : '';
+						$extentionReplace = array('date' => $formattedValue, 'cmd_delete' => $lang->cmd_delete);
+						$template = '<input type="hidden" class="rx_ev_date" name="%column_name%" id="date_%column_name%" value="%value%" />' .
+							'<input type="date" placeholder="YYYY-MM-DD" class="inputDate" value="%date%" ' .
+							'onchange="jQuery(\'#date_%column_name%\').val(this.value.replace(/-/g,\'\'));" readonly="readonly" /> ' .
+							'<input type="button" value="%cmd_delete%" class="btn dateRemover" />';
 					}
 
 					$replace = array_merge($extentionReplace, $replace);

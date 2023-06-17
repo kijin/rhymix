@@ -60,10 +60,17 @@ class ContextTest extends \Codeception\TestCase\Test
         $this->assertEquals(Context::getBodyClass(), ' class="red green"');
         Context::addBodyClass('blue');
         $this->assertEquals(Context::getBodyClass(), ' class="red green blue"');
-
+        Context::addBodyClass('yellow');
+        $this->assertEquals(Context::getBodyClassList(), ['red', 'green', 'blue', 'yellow']);
+        
+        // remove class manually
+        Context::removeBodyClass('yellow');
+        $this->assertEquals(Context::getBodyClassList(), ['red', 'green', 'blue']);
+        
         // remove duplicated class
         Context::addBodyClass('red');
         $this->assertEquals(Context::getBodyClass(), ' class="red green blue"');
+        $this->assertEquals(Context::getBodyClassList(), ['red', 'green', 'blue']);
     }
 
 	public function testSetRequestMethod()
@@ -171,10 +178,20 @@ class ContextTest extends \Codeception\TestCase\Test
         $this->assertEquals(Context::getResponseMethod(), 'HTML');
     }
 
+    public function testDefaultPlugin()
+    {
+        $this->assertTrue(Context::isDefaultPlugin('board', 'module'));
+		$this->assertFalse(Context::isDefaultPlugin('board', 'widget'));
+		$this->assertTrue(Context::isDefaultPlugin('xedition', 'layout'));
+		$this->assertFalse(Context::isDefaultPlugin('xedition', 'addon'));
+	}
+
     public function testBlacklistedPlugin()
     {
         $this->assertTrue(Context::isBlacklistedPlugin('autolang'));
+		$this->assertFalse(Context::isBlacklistedPlugin('autolang', 'module'));
 		$this->assertFalse(Context::isBlacklistedPlugin('document'));
+		$this->assertTrue(Context::isBlacklistedPlugin('jquerycdn', 'addon'));
 	}
 
     public function testReservedWord()

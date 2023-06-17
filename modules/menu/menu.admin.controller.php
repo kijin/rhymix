@@ -1312,7 +1312,7 @@ class menuAdminController extends menu
 
 		// if have a child menu, copy child menu also
 		$childMenu = array_shift($originMenu['list']);
-		if(count($childMenu) > 0)
+		if($childMenu)
 		{
 			$this->_copyMenu($menuSrl, $insertedMenuItemSrl, $childMenu);
 		}
@@ -1460,6 +1460,7 @@ class menuAdminController extends menu
 
 		$target_item = $oMenuAdminModel->getMenuItemInfo($target_srl);
 		if($target_item->menu_item_srl != $target_srl) throw new Rhymix\Framework\Exceptions\InvalidRequest;
+		if($target_srl == $parent_srl) throw new Rhymix\Framework\Exceptions\InvalidRequest;
 		// Move the menu location(change the order menu appears)
 		if($mode == 'move')
 		{
@@ -1568,7 +1569,7 @@ class menuAdminController extends menu
 			Context::set('error_messge', lang('msg_invalid_request'));
 
 		}
-		else if(!$target_file || !is_uploaded_file($target_file['tmp_name']) || !preg_match('/\.(gif|jpeg|jpg|png)$/i',$target_file['name']))
+		else if(!$target_file || !is_uploaded_file($target_file['tmp_name']) || !preg_match('/\.(jpe?g|gif|png|svg|webp)$/i',$target_file['name']))
 		{
 			Context::set('error_messge', lang('msg_invalid_request'));
 		}
@@ -1841,7 +1842,7 @@ class menuAdminController extends menu
 		// Get a list of menu items corresponding to menu_srl by listorder
 		$args->menu_srl = $menu_srl;
 		$args->sort_index = 'listorder';
-		$output = executeQuery('menu.getMenuItems', $args);
+		$output = executeQueryArray('menu.getMenuItems', $args);
 		if(!$output->toBool()) return $output;
 		// If no data found, generate an XML file without node data
 		$list = $output->data;
@@ -1851,8 +1852,6 @@ class menuAdminController extends menu
 			FileHandler::writeFile($php_file, '<?php if(!defined("__XE__")) exit(); ?>');
 			return $xml_file;
 		}
-		// Change to an array if only a single data is obtained
-		if(!is_array($list)) $list = array($list);
 		// Create a tree for loop
 		foreach ($list as $node)
 		{
@@ -1959,8 +1958,9 @@ class menuAdminController extends menu
 			$name_str = sprintf('$_names = array(%s); print $_names[$lang_type];', $name_arr_str);
 
 			$url = escape($node->url);
-			$icon = escape($node->icon, false);
-			$desc = escape($node->desc, false);
+			$icon = Rhymix\Framework\Filters\HTMLFilter::clean($node->icon ?? '', true);
+			$desc = Rhymix\Framework\Filters\HTMLFilter::clean($node->desc ?? '', true);
+			$desc = preg_replace('/(\$user_lang)-&gt;(userLang[0-9]+)/', '$1->$2', $desc);
 			if(preg_match('/^([0-9a-zA-Z\_\-]+)$/', $node->url))
 			{
 				$href = "getSiteUrl('$domain', '','mid','$node->url')";
@@ -2010,7 +2010,7 @@ class menuAdminController extends menu
 				'node_srl="%d" parent_srl="%d" menu_name_key=%s text="<?php if(%s) { %s }?>" url="<?php print(%s?%s:"")?>" href="<?php print(%s?%s:"")?>" is_shortcut=%s icon=%s desc=%s open_window=%s expand=%s normal_btn=%s hover_btn=%s active_btn=%s link="<?php if(%s) {?>%s<?php }?>"',
 				$menu_item_srl,
 				($node->parent_srl) ? $node->parent_srl : '',
-				var_export(($node->name) ? $node->name : '', true),
+				var_export(escape($node->name ?: '', true, true), true),
 				$group_check_code,
 				$name_str,
 				$group_check_code,
@@ -2106,6 +2106,7 @@ class menuAdminController extends menu
 			$url = escape($node->url ?? '', false);
 			$icon = Rhymix\Framework\Filters\HTMLFilter::clean($node->icon ?? '', true);
 			$desc = Rhymix\Framework\Filters\HTMLFilter::clean($node->desc ?? '', true);
+			$desc = preg_replace('/(\$user_lang)-&gt;(userLang[0-9]+)/', '$1->$2', $desc);
 			if(preg_match('/^([0-9a-zA-Z\_\-]+)$/i', $node->url))
 			{
 				$href = "getSiteUrl('$domain', '','mid','$node->url')";
@@ -2177,7 +2178,7 @@ class menuAdminController extends menu
 				"link" => (%s ? (array(%s) && in_array(Context::get("mid"), array(%s)) ? %s : %s) : "")' . PHP_EOL,
 				$node->menu_item_srl,
 				$node->parent_srl,
-				var_export(strip_tags($node->name), true),
+				var_export(escape($node->name ?: '', true, true), true),
 				$group_check_code,
 				$group_check_code,
 				$node->menu_item_srl,
@@ -2263,7 +2264,7 @@ class menuAdminController extends menu
 		$date = date('YmdHis');
 
 		// normal button
-		if($args->menu_normal_btn)
+		if($args->menu_normal_btn && preg_match('/\.(jpe?g|gif|png|svg|webp)$/i', $args->menu_normal_btn['name']))
 		{
 			$tmp_arr = explode('.',$args->menu_normal_btn['name']);
 			$ext = $tmp_arr[count($tmp_arr)-1];
@@ -2273,7 +2274,7 @@ class menuAdminController extends menu
 		}
 
 		// hover button
-		if($args->menu_hover_btn)
+		if($args->menu_hover_btn && preg_match('/\.(jpe?g|gif|png|svg|webp)$/i', $args->menu_hover_btn['name']))
 		{
 			$tmp_arr = explode('.',$args->menu_hover_btn['name']);
 			$ext = $tmp_arr[count($tmp_arr)-1];
@@ -2283,7 +2284,7 @@ class menuAdminController extends menu
 		}
 
 		// active button
-		if($args->menu_active_btn)
+		if($args->menu_active_btn && preg_match('/\.(jpe?g|gif|png|svg|webp)$/i', $args->menu_active_btn['name']))
 		{
 			$tmp_arr = explode('.',$args->menu_active_btn['name']);
 			$ext = $tmp_arr[count($tmp_arr)-1];

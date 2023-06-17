@@ -2,7 +2,7 @@
 
 <include target="config_header.html" />
 
-<div cond="$XE_VALIDATOR_MESSAGE && $XE_VALIDATOR_ID == 'modules/admin/tpl/config_domains/1'" class="message {$XE_VALIDATOR_MESSAGE_TYPE}">
+<div cond="!empty($XE_VALIDATOR_MESSAGE) && $XE_VALIDATOR_ID == 'modules/admin/tpl/config_domains/1'" class="message {$XE_VALIDATOR_MESSAGE_TYPE}">
 	<p>{$XE_VALIDATOR_MESSAGE}</p>
 </div>
 <section class="section">
@@ -21,7 +21,7 @@
 				<th scope="col" class="nowr rx_detail_marks">{$lang->use_ssl}</th>
 				<th scope="col" class="nowr rx_detail_marks">{$lang->cmd_index_module_srl}</th>
 				<th scope="col" class="nowr rx_detail_marks">{$lang->cmd_index_document_srl}</th>
-				<th scope="col" class="nowr">{$lang->cmd_modify} / {$lang->cmd_delete}</th>
+				<th scope="col" class="nowr">{$lang->cmd_modify} / {$lang->cmd_delete} / {$lang->cmd_copy}</th>
 			</tr>
 		</thead>
 		<tbody>
@@ -51,6 +51,8 @@
 					<block cond="$domain->is_default_domain === 'Y'">
 						<span style="color:#aaa">{$lang->cmd_delete}</span>
 					</block>
+					/
+					<a href="{getUrl('', 'module', 'admin', 'act', 'dispAdminCopyDomain', 'domain_srl', $domain->domain_srl)}">{$lang->cmd_copy}</a>
 				</td>
 			</tr>
 			<tr cond="$page_navigation->total_count == 0">

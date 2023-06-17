@@ -42,10 +42,14 @@
 		if (url1.match(/^(https?:)?\/\/[^\/]*[^a-z0-9\/.:_-]/i) || url2.match(/^(https?:)?\/\/[^\/]*[^a-z0-9\/.:_-]/i)) {
 			return false;
 		}
-			
-		url1 = window.XE.URI(url1).normalizePort().normalizeHostname().normalizePathname().origin();
-		url2 = window.XE.URI(url2).normalizePort().normalizeHostname().normalizePathname().origin();
-		return (url1 === url2) ? true : false;
+		
+		try {
+			url1 = window.XE.URI(url1).normalizePort().normalizeHostname().normalizePathname().origin();
+			url2 = window.XE.URI(url2).normalizePort().normalizeHostname().normalizePathname().origin();
+			return (url1 === url2) ? true : false;
+		} catch (err) {
+			return false;
+		}
 	};
 
 	/**
@@ -103,8 +107,8 @@
 			setTimeout(rhymix_alert_close, delay);
 		}
 		else if(isSameOrigin(location.href, redirect_url)) {
-			Cookies.set('rhymix_alert_message', message, { expires: 1 / 1440, path: '' });
-			Cookies.set('rhymix_alert_delay', delay, { expires: 1 / 1440, path: '' });
+			Cookies.set('rhymix_alert_message', message, { expires: 1 / 1440, path: '/' });
+			Cookies.set('rhymix_alert_delay', delay, { expires: 1 / 1440, path: '/' });
 		}
 		else {
 			alert(message);
@@ -114,8 +118,8 @@
 	$(document).ready(function() {
 		if(Cookies.get('rhymix_alert_message')) {
 			rhymix_alert(Cookies.get('rhymix_alert_message'), null, Cookies.get('rhymix_alert_delay'));
-			Cookies.remove('rhymix_alert_message', { path: '' });
-			Cookies.remove('rhymix_alert_delay', { path: '' });
+			Cookies.remove('rhymix_alert_message', { path: '/' });
+			Cookies.remove('rhymix_alert_delay', { path: '/' });
 		}
 		$('#rhymix_alert').click(rhymix_alert_close);
 	});
@@ -215,20 +219,23 @@
 							var classText = 'class="' + (classname ? classname : (act ? (act + ' ') : ''));
 							var styleText = "";
 							var click_str = "";
+							var matches = [];
 							/* if(icon) styleText = " style=\"background-image:url('"+icon+"')\" "; */
-							switch(target) {
-								case "popup" :
-										click_str = 'onclick="popopen(this.href, \''+target+'\'); return false;"';
-										classText += 'popup ';
-									break;
-								case "javascript" :
-										click_str = 'onclick="'+url+'; return false; "';
-										classText += 'script ';
-										url='#';
-									break;
-								default :
-										click_str = 'target="_blank"';
-									break;
+							if (target === 'popup') {
+								click_str = 'onclick="popopen(this.href, \''+target+'\'); return false;"';
+								classText += 'popup ';
+							} else if (target === 'javascript') {
+								click_str = 'onclick="'+url+'; return false; "';
+								classText += 'javascript ';
+								url = '#';
+							} else if (target.match(/^_(self|blank|parent|top)$/)) {
+								click_str = 'target="' + target + '"';
+								classText += 'frame_' + target + ' ';
+							} else if (matches = target.match(/^i?frame:([a-zA-Z0-9_]+)$/)) {
+								click_str = 'target="' + matches[1] + '"';
+								classText += 'frame_' + matches[1] + ' ';
+							} else {
+								click_str = 'target="_blank"';
 							}
 							classText = classText.trim() + '" ';
 
@@ -309,7 +316,28 @@ jQuery(function($) {
 		$(this).parents("form[method]").filter(function() { return String($(this).attr("method")).toUpperCase() == "POST"; }).addCSRFTokenToForm();
 	});
 	
-	/* Tabnapping protection, step 1 */
+	/**
+	 * Reverse tabnapping protection
+	 * 
+	 * Automatically add rel="noopener" to any external link with target="_blank"
+	 * This is not required in most modern browsers.
+	 * https://caniuse.com/mdn-html_elements_a_implicit_noopener
+	 */
+	var noopenerRequired = (function() {
+		var isChromeBased = navigator.userAgent.match(/Chrome\/([0-9]+)/);
+		if (isChromeBased && parseInt(isChromeBased[1], 10) >= 72) {
+			return false;
+		}
+		var isAppleWebKit = navigator.userAgent.match(/AppleWebKit\/([0-9]+)/);
+		if (isAppleWebKit && parseInt(isAppleWebKit[1], 10) >= 605) {
+			return false;
+		}
+		var isFirefox = navigator.userAgent.match(/Firefox\/([0-9]+)/);
+		if (isFirefox && parseInt(isFirefox[1], 10) >= 79) {
+			return false;
+		}
+		return true;
+	})();
 	$('a[target]').each(function() {
 		var $this = $(this);
 		var href = String($this.attr('href')).trim();
@@ -325,8 +353,6 @@ jQuery(function($) {
 			}
 		}
 	});
-
-	/* Tabnapping protection, step 2 */
 	$('body').on('click', 'a[target]', function(event) {
 		var $this = $(this);
 		var href = String($this.attr('href')).trim();
@@ -340,25 +366,12 @@ jQuery(function($) {
 			if (!rel.match(/\bnoopener\b/)) {
 				$this.attr('rel', $.trim(rel + ' noopener'));
 			}
-			var isChrome = navigator.userAgent.match(/Chrome\/([0-9]+)/);
-			if (isChrome && parseInt(isChrome[1], 10) >= 72) {
-				return;
+			if (noopenerRequired) {
+				event.preventDefault();
+				blankshield.open(href);
 			}
-			event.preventDefault();
-			blankshield.open(href);
 		}
 	});
-	
-	/* Detect color scheme */
-	var body_element = $('body');
-	/* If there is color_scheme class in the body, color scheme settings were already applied. */
-	if(!body_element.hasClass('color_scheme_light') && !body_element.hasClass('color_scheme_dark')) {
-		var color_scheme_cookie = XE.cookie.get('rx_color_scheme');
-		var color_scheme_detected = (window.matchMedia && window.matchMedia('(prefers-color-scheme:dark)').matches) ? 'dark' : 'light';
-		if (!color_scheme_cookie) {
-			body_element.addClass('color_scheme_' + color_scheme_detected).removeClass('color_scheme_' + (color_scheme_detected === 'dark' ? 'light' : 'dark'));
-		}
-	}
 	
 	/* Editor preview replacement */
 	$(".editable_preview").addClass("rhymix_content xe_content").attr("tabindex", 0);
@@ -523,7 +536,7 @@ jQuery(function($) {
 	 * @return URI
 	 */
 	function normailzeUri(uri) {
-		var protocol = window.enforce_ssl ? 'https' : 'http';
+		var protocol = window.enforce_ssl ? 'https' : uri.protocol();
 		var port = (protocol === 'http') ? window.http_port : window.https_port;
 		var filename = uri.filename() || 'index.php';
 		var queries = uri.search(true);
@@ -775,10 +788,10 @@ function setLangType(lang_type) {
 
 /* 색상 테마 변경 */
 function getColorScheme() {
-	if ($('body').hasClass('color_scheme_light')) {
-		return 'light';
-	} else {
+	if ($('body').hasClass('color_scheme_dark')) {
 		return 'dark';
+	} else {
+		return 'light';
 	}
 }
 function setColorScheme(color_scheme) {
@@ -790,6 +803,30 @@ function setColorScheme(color_scheme) {
 		color_scheme = (window.matchMedia && window.matchMedia('(prefers-color-scheme:dark)').matches) ? 'dark' : 'light';
 		$('body').addClass('color_scheme_' + color_scheme).removeClass('color_scheme_' + (color_scheme === 'dark' ? 'light' : 'dark'));
 	}
+}
+function detectColorScheme() {
+	// Return if a color scheme is already selected.
+	var body_element = $('body');
+	if(body_element.hasClass('color_scheme_light') || body_element.hasClass('color_scheme_dark')) {
+		return;
+	}
+	// Detect the cookie.
+	var color_scheme = XE.cookie.get('rx_color_scheme');
+	// Detect the device color scheme.
+	var match_media = window.matchMedia ? window.matchMedia('(prefers-color-scheme:dark)') : null;
+	if (color_scheme !== 'light' && color_scheme !== 'dark') {
+		color_scheme = (match_media && match_media.matches) ? 'dark' : 'light';
+	}
+	// Set the body class according to the detected color scheme.
+	body_element.addClass('color_scheme_' + color_scheme);
+	// Add an event listener to detect changes to the device color scheme.
+	match_media && match_media.addListener && match_media.addListener(function(e) {
+		if (e.matches) {
+			body_element.removeClass('color_scheme_light').addClass('color_scheme_dark');
+		} else {
+			body_element.removeClass('color_scheme_dark').addClass('color_scheme_light');
+		}
+	});
 }
 
 /* 미리보기 */

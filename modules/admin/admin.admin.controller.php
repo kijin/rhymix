@@ -30,17 +30,24 @@ class adminAdminController extends admin
 	 */
 	function procAdminMenuReset()
 	{
-		$menuSrl = Context::get('menu_srl');
-		if(!$menuSrl)
-		{
-			throw new Rhymix\Framework\Exceptions\InvalidRequest;
-		}
-
+		$oMenuAdminModel = getAdminModel('menu');
 		$oMenuAdminController = getAdminController('menu');
-		$output = $oMenuAdminController->deleteMenu($menuSrl);
-		if(!$output->toBool())
+		for ($i = 0; $i < 100; $i++)
 		{
-			return $output;
+			$output = $oMenuAdminModel->getMenuByTitle($this->getAdminMenuName());
+			$admin_menu_srl = $output->menu_srl ?? 0;
+			if ($admin_menu_srl)
+			{
+				$output = $oMenuAdminController->deleteMenu($admin_menu_srl);
+				if (!$output->toBool())
+				{
+					return $output;
+				}
+			}
+			else
+			{
+				break;
+			}
 		}
 
 		Rhymix\Framework\Cache::delete('admin_menu_langs:' . Context::getLangType());
@@ -92,7 +99,7 @@ class adminAdminController extends admin
 		{
 			$oModule = NULL;
 			$oModule = getClass($module->module);
-			if(method_exists($oModule, 'recompileCache'))
+			if($oModule && method_exists($oModule, 'recompileCache'))
 			{
 				$oModule->recompileCache();
 			}
@@ -695,27 +702,18 @@ class adminAdminController extends admin
 	{
 		$vars = Context::getRequestVars();
 		
-		// iframe filter
-		$iframe_whitelist = $vars->mediafilter_iframe;
-		$iframe_whitelist = array_filter(array_map('trim', preg_split('/[\r\n]/', $iframe_whitelist)), function($item) {
+		// Media Filter iframe/embed whitelist
+		$whitelist = $vars->mediafilter_whitelist;
+		$whitelist = array_filter(array_map('trim', preg_split('/[\r\n]/', $whitelist)), function($item) {
 			return $item !== '';
 		});
-		$iframe_whitelist = array_unique(array_map(function($item) {
+		$whitelist = array_unique(array_map(function($item) {
 			return Rhymix\Framework\Filters\MediaFilter::formatPrefix($item);
-		}, $iframe_whitelist));
-		natcasesort($iframe_whitelist);
-		Rhymix\Framework\Config::set('mediafilter.iframe', array_values($iframe_whitelist));
-		
-		// object filter
-		$object_whitelist = $vars->mediafilter_object;
-		$object_whitelist = array_filter(array_map('trim', preg_split('/[\r\n]/', $object_whitelist)), function($item) {
-			return $item !== '';
-		});
-		$object_whitelist = array_unique(array_map(function($item) {
-			return Rhymix\Framework\Filters\MediaFilter::formatPrefix($item);
-		}, $object_whitelist));
-		natcasesort($object_whitelist);
-		Rhymix\Framework\Config::set('mediafilter.object', array_values($object_whitelist));
+		}, $whitelist));
+		natcasesort($whitelist);
+		Rhymix\Framework\Config::set('mediafilter.whitelist', array_values($whitelist));
+		Rhymix\Framework\Config::set('mediafilter.iframe', []);
+		Rhymix\Framework\Config::set('mediafilter.object', []);
 		
 		// HTML classes
 		$classes = $vars->mediafilter_classes;
@@ -760,9 +758,16 @@ class adminAdminController extends admin
 			throw new Rhymix\Framework\Exception('msg_current_ip_will_be_denied');
 		}
 		
+		$site_module_info = Context::get('site_module_info');
+		$vars->use_samesite = preg_replace('/[^a-zA-Z]/', '', $vars->use_samesite);
+		if ($vars->use_samesite === 'None' && ($vars->use_session_ssl !== 'Y' || $site_module_info->security !== 'always'))
+		{
+			$vars->use_samesite = '';
+		}
+		
 		Rhymix\Framework\Config::set('admin.allow', array_values($allowed_ip));
 		Rhymix\Framework\Config::set('admin.deny', array_values($denied_ip));
-		Rhymix\Framework\Config::set('session.samesite', preg_replace('/[^a-zA-Z]/', '', $vars->use_samesite));
+		Rhymix\Framework\Config::set('session.samesite', $vars->use_samesite);
 		Rhymix\Framework\Config::set('session.use_keys', $vars->use_session_keys === 'Y');
 		Rhymix\Framework\Config::set('session.use_ssl', $vars->use_session_ssl === 'Y');
 		Rhymix\Framework\Config::set('session.use_ssl_cookies', $vars->use_cookies_ssl === 'Y');
@@ -982,6 +987,7 @@ class adminAdminController extends admin
 		Rhymix\Framework\Config::set('seo.og_extract_description', $vars->og_extract_description === 'Y');
 		Rhymix\Framework\Config::set('seo.og_extract_images', $vars->og_extract_images === 'Y');
 		Rhymix\Framework\Config::set('seo.og_extract_hashtags', $vars->og_extract_hashtags === 'Y');
+		Rhymix\Framework\Config::set('seo.og_use_nick_name', $vars->og_use_nick_name === 'Y');
 		Rhymix\Framework\Config::set('seo.og_use_timestamps', $vars->og_use_timestamps === 'Y');
 		Rhymix\Framework\Config::set('seo.twitter_enabled', $vars->twitter_enabled === 'Y');
 		
@@ -1032,15 +1038,30 @@ class adminAdminController extends admin
 	function procAdminInsertDomain()
 	{
 		$vars = Context::getRequestVars();
-		$domain_srl = strval($vars->domain_srl);
+		$domain_srl = intval($vars->domain_srl);
 		$domain_info = null;
-		if ($domain_srl !== '')
+		if (strval($vars->domain_srl) !== '')
 		{
-			$domain_info = getModel('module')->getSiteInfo($domain_srl);
-			if ($domain_info->domain_srl != $domain_srl)
+			$domain_info = ModuleModel::getSiteInfo($domain_srl);
+			if (!$domain_info || intval($domain_info->domain_srl) !== $domain_srl)
 			{
 				throw new Rhymix\Framework\Exception('msg_domain_not_found');
 			}
+		}
+		
+		// Copying?
+		$copy_domain_srl = intval($vars->copy_domain_srl);
+		if (!$domain_info && $copy_domain_srl > -1)
+		{
+			$copy_domain_info = ModuleModel::getSiteInfo($copy_domain_srl);
+			if (!$copy_domain_info || intval($copy_domain_info->domain_srl) !== $copy_domain_srl)
+			{
+				throw new Rhymix\Framework\Exception('msg_domain_not_found');
+			}
+		}
+		else
+		{
+			$copy_domain_info = null;
 		}
 		
 		// Validate the title and subtitle.
@@ -1126,14 +1147,14 @@ class adminAdminController extends admin
 		
 		// Validate the default language.
 		$enabled_lang = Rhymix\Framework\Config::get('locale.enabled_lang');
-		if (!in_array($vars->default_lang, $enabled_lang))
+		if ($vars->default_lang !== 'default' && !in_array($vars->default_lang, $enabled_lang))
 		{
 			throw new Rhymix\Framework\Exception('msg_lang_is_not_enabled');
 		}
 		
 		// Validate the default time zone.
 		$timezone_list = Rhymix\Framework\DateTime::getTimezoneList();
-		if (!isset($timezone_list[$vars->default_timezone]))
+		if ($vars->default_timezone !== 'default' && !isset($timezone_list[$vars->default_timezone]))
 		{
 			throw new Rhymix\Framework\Exception('msg_invalid_timezone');
 		}
@@ -1224,18 +1245,57 @@ class adminAdminController extends admin
 			}
 		}
 		
-		// Save the favicon, mobicon, and default image.
+		// Save or copy the favicon.
 		if ($vars->favicon || $vars->delete_favicon)
 		{
 			$this->_saveFavicon($domain_srl, $vars->favicon, 'favicon.ico', $vars->delete_favicon);
 		}
+		elseif ($copy_domain_info)
+		{
+			$source_filename = \RX_BASEDIR . 'files/attach/xeicon/' . ($copy_domain_info->domain_srl ? ($copy_domain_info->domain_srl . '/') : '') . 'favicon.ico';
+			$target_filename = \RX_BASEDIR . 'files/attach/xeicon/' . $domain_srl . '/' . 'favicon.ico';
+			Rhymix\Framework\Storage::copy($source_filename, $target_filename);
+		}
+		
+		// Save or copy the mobile icon.
 		if ($vars->mobicon || $vars->delete_mobicon)
 		{
 			$this->_saveFavicon($domain_srl, $vars->mobicon, 'mobicon.png', $vars->delete_mobicon);
 		}
+		elseif ($copy_domain_info)
+		{
+			$source_filename = \RX_BASEDIR . 'files/attach/xeicon/' . ($copy_domain_info->domain_srl ? ($copy_domain_info->domain_srl . '/') : '') . 'mobicon.png';
+			$target_filename = \RX_BASEDIR . 'files/attach/xeicon/' . $domain_srl . '/' . 'mobicon.png';
+			Rhymix\Framework\Storage::copy($source_filename, $target_filename);
+		}
+		
+		// Save or copy the site default image.
 		if ($vars->default_image || $vars->delete_default_image)
 		{
 			$this->_saveDefaultImage($domain_srl, $vars->default_image, $vars->delete_default_image);
+		}
+		elseif ($copy_domain_info)
+		{
+			$source_filename = \RX_BASEDIR . 'files/attach/xeicon/' . ($copy_domain_info->domain_srl ? ($copy_domain_info->domain_srl . '/') : '') . 'default_image.php';
+			$target_filename = \RX_BASEDIR . 'files/attach/xeicon/' . $domain_srl . '/' . 'default_image.php';
+			if (Rhymix\Framework\Storage::copy($source_filename, $target_filename))
+			{
+				$info = Rhymix\Framework\Storage::readPHPData($target_filename);
+				if ($info && $info['filename'])
+				{
+					$source_image = \RX_BASEDIR . $info['filename'];
+					$target_image = \RX_BASEDIR . 'files/attach/xeicon/' . $domain_srl . '/' . basename($info['filename']);
+					if (Rhymix\Framework\Storage::copy($source_image, $target_image))
+					{
+						$info['filename'] = substr($target_image, strlen(\RX_BASEDIR));
+						$info = Rhymix\Framework\Storage::writePHPData($target_filename, $info);
+					}
+				}
+				else
+				{
+					Rhymix\Framework\Storage::delete($target_filename);
+				}
+			}
 		}
 		
 		// Update system configuration to match the default domain.
@@ -1249,7 +1309,10 @@ class adminAdminController extends admin
 			Rhymix\Framework\Config::set('url.http_port', $vars->http_port ?: null);
 			Rhymix\Framework\Config::set('url.https_port', $vars->https_port ?: null);
 			Rhymix\Framework\Config::set('url.ssl', $vars->domain_security);
-			Rhymix\Framework\Config::save();
+			if (!Rhymix\Framework\Config::save())
+			{
+				throw new Rhymix\Framework\Exception('msg_failed_to_save_config');
+			}
 		}
 		
 		// Commit.

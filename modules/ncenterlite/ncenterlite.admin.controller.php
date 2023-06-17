@@ -24,6 +24,7 @@ class ncenterliteAdminController extends ncenterlite
 			'colorset',
 			'zindex',
 			'anonymous_name',
+			'push_before_sms',
 			'document_read',
 			'layout_srl',
 			'mlayout_srl',
@@ -36,7 +37,16 @@ class ncenterliteAdminController extends ncenterlite
 			'comment_all',
 			'comment_all_notify_module_srls',
 			'unsubscribe',
+			'notify_count',
 		);
+
+		if($obj->disp_act == 'dispNcenterliteAdminSkinsetting')
+		{
+			if(intval($obj->notify_count) !== intval($config->notify_count))
+			{
+				Rhymix\Framework\Cache::clearGroup($this->module);
+			}
+		}
 
 		foreach($config_vars as $val)
 		{
@@ -96,6 +106,14 @@ class ncenterliteAdminController extends ncenterlite
 			if(!$obj->comment_all_notify_module_srls)
 			{
 				$config->comment_all_notify_module_srls = array();
+			}
+		}
+
+		if($obj->disp_act == 'dispNcenterliteAdminSkinsetting')
+		{
+			if(!$obj->notify_count)
+			{
+				$config->notify_count = 0;
 			}
 		}
 		

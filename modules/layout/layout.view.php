@@ -41,12 +41,11 @@ class layoutView extends layout
 	public function dispLayoutPreviewWithModule()
 	{
 		$content = '';
-		$layoutSrl = Context::get('layout_srl');
-
-		$module = Context::get('module_name');
-		$mid = Context::get('target_mid');
-		$skin = Context::get('skin');
-		$skinType = Context::get('skin_type');
+		$layoutSrl = intval(Context::get('layout_srl'));
+		$module = preg_replace('/[^a-zA-Z0-9_]/', '', Context::get('module_name'));
+		$mid = preg_replace('/[^a-zA-Z0-9\/_-]/', '', Context::get('target_mid'));
+		$skin = preg_replace('/[^a-zA-Z0-9_-]/', '', Context::get('skin'));
+		$skinType = Context::get('skin_type') === 'M' ? 'M' : 'P';
 
 		try
 		{
@@ -296,6 +295,12 @@ class layoutView extends layout
 			Mobile::setMobile(FALSE);
 			$oModuleHandler->module_info->skin = $skin;
 		}
+
+		// Remove unnecessary variables
+		Context::set('success_return_url', null);
+		Context::set('error_return_url', null);
+		Context::set('skin_type', null);
+		Context::set('skin_vars', null);
 
 		// Proc module
 		$oModule = $oModuleHandler->procModule();

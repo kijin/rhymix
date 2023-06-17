@@ -32,75 +32,119 @@ class memberModel extends member
 		{
 			return self::$_member_config;
 		}
-
-		// Get member configuration stored in the DB
+		
 		$config = ModuleModel::getModuleConfig('member') ?: new stdClass;
-
-		if(!isset($config->signupForm) || !is_array($config->signupForm))
+		
+		// Set default config
+		$config->enable_join = $config->enable_join ?? 'Y';
+		$config->enable_confirm = $config->enable_confirm ?? 'N';
+		$config->authmail_expires = $config->authmail_expires ?? 1;
+		$config->authmail_expires_unit = $config->authmail_expires_unit ?? 86400;
+		$config->member_profile_view = $config->member_profile_view ?? 'N';
+		$config->update_nickname_log = $config->update_nickname_log ?? 'N';
+		$config->nickname_symbols = $config->nickname_symbols ?? 'Y';
+		$config->nickname_symbols_allowed_list = $config->nickname_symbols_allowed_list ?? '';
+		$config->password_strength = $config->password_strength ?? 'normal';
+		$config->password_hashing_algorithm = $config->password_hashing_algorithm ?? Rhymix\Framework\Password::getBestSupportedAlgorithm();
+		$config->password_hashing_work_factor = $config->password_hashing_work_factor ?? 10;
+		$config->password_hashing_auto_upgrade = $config->password_hashing_auto_upgrade ?? 'Y';
+		$config->password_change_invalidate_other_sessions = $config->password_change_invalidate_other_sessions ?? 'N';
+		
+		// Set features config
+		if(!isset($config->features)) $config->features = array();
+		$config->features['scrapped_documents'] = $config->features['scrapped_documents'] ?? true;
+		$config->features['saved_documents'] = $config->features['saved_documents'] ?? true;
+		$config->features['my_documents'] = $config->features['my_documents'] ?? true;
+		$config->features['my_comments'] = $config->features['my_comments'] ?? true;
+		$config->features['active_logins'] = $config->features['active_logins'] ?? true;
+		$config->features['nickname_log'] = $config->features['nickname_log'] ?? true;
+		
+		// Set agreements config
+		if(!isset($config->agreements) || !is_array($config->agreements))
 		{
-			$oMemberAdminController = getAdminController('member');
-			$identifier = ($config->identifier) ? $config->identifier : 'email_address';
-			$config->signupForm = $oMemberAdminController->createSignupForm($identifier);
-		}
-		//for multi language
-		foreach($config->signupForm AS $key=>$value)
-		{
-			if(!isset($value->isCustomTitle) || !$value->isCustomTitle)
-			{
-				$config->signupForm[$key]->title = ($value->isDefaultForm ?? false) ? lang($value->name) : $value->title;
-			}
-			if($config->signupForm[$key]->isPublic != 'N') $config->signupForm[$key]->isPublic = 'Y';
-			if($value->name == 'find_account_question') $config->signupForm[$key]->isPublic = 'N';
-		}
-
-		// Get terms of user
-		if(!$config->agreements)
-		{
-			$config->agreement = self::_getAgreement();
+			$config->agreements = array();
 			$config->agreements[1] = new stdClass;
 			$config->agreements[1]->title = lang('agreement');
-			$config->agreements[1]->content = $config->agreement;
-			$config->agreements[1]->type = $config->agreement ? 'required' : 'disabled';
+			$config->agreements[1]->content = self::_getAgreement() ?: ($config->agreement ?? '');
+			$config->agreements[1]->type = !empty($config->agreements[1]->content) ? 'required' : 'disabled';
 		}
-
-		if(!$config->webmaster_name) $config->webmaster_name = 'webmaster';
-
-		if(!$config->image_name_max_width) $config->image_name_max_width = 90;
-		if(!$config->image_name_max_height) $config->image_name_max_height = 20;
-		if(!$config->image_name_max_filesize) $config->image_name_max_filesize = null;
-		if(!$config->image_mark_max_width) $config->image_mark_max_width = 20;
-		if(!$config->image_mark_max_height) $config->image_mark_max_height = 20;
-		if(!$config->image_mark_max_filesize) $config->image_mark_max_filesize = null;
-		if(!$config->profile_image_max_width) $config->profile_image_max_width = 90;
-		if(!$config->profile_image_max_height) $config->profile_image_max_height = 90;
-		if(!$config->profile_image_max_filesize) $config->profile_image_max_filesize = null;
-
-		if(!$config->skin) $config->skin = 'default';
-		if(!$config->colorset) $config->colorset = 'white';
-		if(!$config->editor_skin || $config->editor_skin == 'default') $config->editor_skin = 'ckeditor';
-		if(!$config->group_image_mark) $config->group_image_mark = "N";
-
-		if(!$config->identifier) $config->identifier = 'user_id';
-
-		if(!$config->emailhost_check) $config->emailhost_check = 'allowed';
-
-		if(!$config->max_error_count) $config->max_error_count = 10;
-		if(!$config->max_error_count_time) $config->max_error_count_time = 300;
-
-		if(!$config->signature_editor_skin || $config->signature_editor_skin == 'default') $config->signature_editor_skin = 'ckeditor';
-		if(!$config->sel_editor_colorset) $config->sel_editor_colorset = 'moono-lisa';
-		if(!$config->member_allow_fileupload) $config->member_allow_fileupload = 'N';
-		if(!$config->member_profile_view) $config->member_profile_view = 'N';
-
-		if(isset($config->redirect_mid) && $config->redirect_mid)
+		unset($config->agreement);
+		
+		// Set signup config
+		$config->limit_day = $config->limit_day ?? 0;
+		$config->emailhost_check = $config->emailhost_check ?? 'allowed';
+		$config->special_phone_number = $config->special_phone_number ?? null;
+		$config->special_phone_code = $config->special_phone_code ?? null;
+		$config->redirect_mid = $config->redirect_mid ?? null;
+		$config->redirect_url = $config->redirect_mid ? getNotEncodedFullUrl('', 'mid', $config->redirect_mid) : null;
+		$config->phone_number_default_country = $config->phone_number_default_country ?? (Context::get('lang_type') === 'ko' ? 'KOR' : null);
+		$config->phone_number_hide_country = $config->phone_number_hide_country ?? 'N';
+		$config->phone_number_allow_duplicate = $config->phone_number_allow_duplicate ?? 'N';
+		$config->phone_number_verify_by_sms = $config->phone_number_verify_by_sms ?? 'N';
+		$config->signature_editor_skin = $config->signature_editor_skin ?? 'ckeditor';
+		$config->sel_editor_colorset = $config->sel_editor_colorset ?? 'moono-lisa';
+		$config->signature = $config->signature ?? 'N';
+		$config->signature_html = $config->signature_html ?? 'Y';
+		$config->signature_html_retroact = $config->signature_html_retroact ?? 'N';
+		$config->member_allow_fileupload = $config->member_allow_fileupload ?? 'N';
+		$config->profile_image = $config->profile_image ?? 'N';
+		$config->profile_image_max_width = $config->profile_image_max_width ?? 90;
+		$config->profile_image_max_height = $config->profile_image_max_height ?? 90;
+		$config->profile_image_max_filesize = $config->profile_image_max_filesize ?? null;
+		$config->image_name = $config->image_name ?? 'N';
+		$config->image_name_max_width = $config->image_name_max_width ?? 90;
+		$config->image_name_max_height = $config->image_name_max_height ?? 20;
+		$config->image_name_max_filesize = $config->image_name_max_filesize ?? null;
+		$config->image_mark = $config->image_mark ?? 'N';
+		$config->image_mark_max_width = $config->image_mark_max_width ?? 20;
+		$config->image_mark_max_height = $config->image_mark_max_height ?? 20;
+		$config->image_mark_max_filesize = $config->image_mark_max_filesize ?? null;
+		if($config->signature_editor_skin === 'default')
 		{
-			$config->redirect_url = getNotEncodedFullUrl('','mid',$config->redirect_mid);
+			$config->signature_editor_skin = 'ckeditor';
 		}
-
+		
+		// Set login config
+		$config->identifier = $config->identifier ?? 'user_id';
+		$config->identifiers = $config->identifiers ?? array('user_id', 'email_address');
+		$config->change_password_date = $config->change_password_date ?? 0;
+		$config->enable_login_fail_report = $config->enable_login_fail_report ?? 'Y';
+		$config->max_error_count = $config->max_error_count ?? 10;
+		$config->max_error_count_time = $config->max_error_count_time ?? 300;
+		$config->login_invalidate_other_sessions = $config->login_invalidate_other_sessions ?? 'N';
+		$config->after_login_url = $config->after_login_url ?? null;
+		$config->after_logout_url = $config->after_logout_url ?? null;
+		
+		// Set design config
+		$config->layout_srl = $config->layout_srl ?? 0;
+		$config->skin = $config->skin ?? 'default';
+		$config->colorset = $config->colorset ?? 'white';
+		$config->mlayout_srl = $config->mlayout_srl ?? 0;
+		$config->mskin = $config->mskin ?? 'default';
+		
+		// Set group image config
+		$config->group_image_mark = $config->group_image_mark ?? 'N';
+		
+		// Set signup form
+		if(!isset($config->signupForm) || !is_array($config->signupForm))
+		{
+			$config->signupForm = getAdminController('member')->createSignupForm($config->identifier);
+		}
+		foreach($config->signupForm as $key => $value)
+		{
+			if($value->isDefaultForm && empty($value->isCustomTitle))
+			{
+				$config->signupForm[$key]->title = lang($value->name);
+			}
+			$config->signupForm[$key]->isPublic = $config->signupForm[$key]->isPublic ?? 'Y';
+		}
+		
 		return self::$_member_config = $config;
 	}
 
 	/**
+	 * Get member agreement from old version
+	 * 
 	 * @deprecated
 	 */
 	protected static function _getAgreement()
@@ -131,37 +175,57 @@ class memberModel extends member
 	}
 
 	/**
+	 * Display login status as JSON API
+	 */
+	public function getLoginStatus()
+	{
+		Context::setResponseMethod('JSON');
+		$this->add('status', Rhymix\Framework\Session::getLoginStatus());
+	}
+
+	/**
 	 * @brief Display menus of the member
 	 */
 	public function getMemberMenu()
 	{
 		// Get member_srl of he target member and logged info of the current user
 		$member_srl = Context::get('target_srl');
+		if ($member_srl <= 0)
+		{
+			return;
+		}
+		
 		$mid = Context::get('cur_mid');
 		$logged_info = Context::get('logged_info');
 		$module_config = self::getMemberConfig();
-		$act = Context::get('cur_act');
-		// When click user's own nickname
-		if($member_srl == $logged_info->member_srl) $member_info = $logged_info;
-		// When click other's nickname
-		else $member_info = self::getMemberInfoByMemberSrl($member_srl);
-
-		$member_srl = $member_info->member_srl;
-		if(!$member_srl) return;
-
-		// List variables
-		$user_id = $member_info->user_id;
-		$user_name = $member_info->user_name;
 		$icon_path = '';
+		
+		// Get requested member info
+		if($member_srl == $logged_info->member_srl)
+		{
+			$member_info = $logged_info;
+		}
+		else
+		{
+			$member_info = self::getMemberInfoByMemberSrl($member_srl);
+		}
+
+		// Check if member_info is valid
+		$member_srl = $member_info->member_srl;
+		if (!$member_srl)
+		{
+			return;
+		}
 
 		ModuleHandler::triggerCall('member.getMemberMenu', 'before', $member_info);
 
 		$oMemberController = MemberController::getInstance();
+		
 		// Display member information (Don't display to non-logged user)
 		if($logged_info->member_srl)
 		{
 			$url = getUrl('','mid',$mid,'act','dispMemberInfo','member_srl',$member_srl);
-			$oMemberController->addMemberPopupMenu($url,'cmd_view_member_info',$icon_path,'self');
+			$oMemberController->addMemberPopupMenu($url,'cmd_view_member_info',$icon_path);
 		}
 
 		// When click other's nickname
@@ -215,13 +279,13 @@ class memberModel extends member
 		// View homepage info
 		if($member_info->homepage && $homepage_is_public)
 		{
-			$oMemberController->addMemberPopupMenu(escape($member_info->homepage, false), 'homepage', '', 'blank', 'homepage');
+			$oMemberController->addMemberPopupMenu(escape($member_info->homepage, false), 'homepage', '', '_blank', 'homepage');
 		}
 		
 		// View blog info
 		if($member_info->blog && $blog_is_public)
 		{
-			$oMemberController->addMemberPopupMenu(escape($member_info->blog, false), 'blog', '', 'blank', 'blog');
+			$oMemberController->addMemberPopupMenu(escape($member_info->blog, false), 'blog', '', '_blank', 'blog');
 		}
 		
 		// Call a trigger (after)
@@ -360,16 +424,16 @@ class memberModel extends member
 				$args = new stdClass();
 				$args->member_srl = $member_srl;
 				$output = executeQuery('member.getMemberInfoByMemberSrl', $args);
-				if(!$output->data)
+				if($output->toBool() && $output->data)
 				{
-					return new stdClass;
-				}
-				
-				$member_info = self::arrangeMemberInfo($output->data);
-				if($output->toBool())
-				{
+					$member_info = self::arrangeMemberInfo($output->data);
 					Rhymix\Framework\Cache::set($cache_key, $member_info);
 				}
+				else
+				{
+					$member_info = new stdClass;
+				}
+				$GLOBALS['__member_info__'][$member_srl] = $member_info;
 			}
 		}
 
@@ -437,8 +501,17 @@ class memberModel extends member
 			$oSecurity = new Security($info);
 			$oSecurity->encodeHTML('user_id', 'user_name', 'nick_name', 'find_account_answer', 'description', 'address.', 'group_list..');
 
-			$info->homepage = strip_tags($info->homepage);
-			$info->blog = strip_tags($info->blog);
+			// Validate URLs
+			$info->homepage = escape(strip_tags($info->homepage));
+			if ($info->homepage !== '' && !preg_match('!^https?://[^\\\\/]+!', $info->homepage))
+			{
+				$info->homepage = '';
+			}
+			$info->blog = escape(strip_tags($info->blog));
+			if ($info->blog !== '' && !preg_match('!^https?://[^\\\\/]+!', $info->blog))
+			{
+				$info->blog = '';
+			}
 
 			if($extra_vars)
 			{
@@ -453,18 +526,6 @@ class memberModel extends member
 						$oSecurity->encodeHTML($key);
 					}
 				}
-			}
-
-			// Check format.
-			$oValidator = new Validator();
-			if(!$oValidator->applyRule('url', $info->homepage))
-			{
-				$info->homepage = '';
-			}
-
-			if(!$oValidator->applyRule('url', $info->blog))
-			{
-				$info->blog = '';
 			}
 
 			$GLOBALS['__member_info__'][$info->member_srl] = $info;
@@ -542,6 +603,7 @@ class memberModel extends member
 	public static function getMemberGroups($member_srl, $site_srl = 0, $force_reload = false)
 	{
 		// cache controll
+		$member_srl = intval($member_srl);
 		$cache_key = sprintf('member:member_groups:%d', $member_srl);
 		$group_list = Rhymix\Framework\Cache::get($cache_key);
 
@@ -552,7 +614,7 @@ class memberModel extends member
 				$args = new stdClass();
 				$args->member_srl = $member_srl;
 				$output = executeQueryArray('member.getMemberGroups', $args);
-				$group_list = $output->data;
+				$group_list = $output->data ?: [];
 				if (!count($group_list))
 				{
 					$default_group = self::getDefaultGroup(0);
@@ -646,7 +708,7 @@ class memberModel extends member
 		if(!isset($GLOBALS['__group_info__'][0]))
 		{
 			$result = array();
-			$group_list = Rhymix\Framework\Cache::get('member:member_group');
+			$group_list = Rhymix\Framework\Cache::get('member:member_groups');
 
 			if(!$group_list)
 			{
@@ -827,8 +889,14 @@ class memberModel extends member
 
 			$extend_form_list[$srl]->value = $value;
 
-			if($member_info->{'open_'.$column_name}=='Y') $extend_form_list[$srl]->is_opened = true;
-			else $extend_form_list[$srl]->is_opened = false;
+			if(isset($member_info->{'open_'.$column_name}) && $member_info->{'open_'.$column_name} === 'Y')
+			{
+				$extend_form_list[$srl]->is_opened = true;
+			}
+			else
+			{
+				$extend_form_list[$srl]->is_opened = false;
+			}
 		}
 		return $extend_form_list;
 	}
@@ -998,13 +1066,13 @@ class memberModel extends member
 			foreach(['jpg', 'jpeg', 'gif', 'png'] as $ext)
 			{
 				$image_name_file = sprintf('files/member_extra_info/profile_image/%s%d.%s', getNumberingPath($member_srl), $member_srl, $ext);
-				if(file_exists($image_name_file))
+				if(file_exists(\RX_BASEDIR . $image_name_file))
 				{
-					list($width, $height, $type, $attrs) = getimagesize($image_name_file);
+					list($width, $height, $type, $attrs) = getimagesize(\RX_BASEDIR . $image_name_file);
 					$info = new stdClass();
 					$info->width = $width;
 					$info->height = $height;
-					$info->src = \RX_BASEURL . $image_name_file . '?' . date('YmdHis', filemtime($image_name_file));
+					$info->src = \RX_BASEURL . $image_name_file . '?' . date('YmdHis', filemtime(\RX_BASEDIR . $image_name_file));
 					$info->file = './'.$image_name_file;
 					$GLOBALS['__member_info__']['profile_image'][$member_srl] = $info;
 					break;
@@ -1031,13 +1099,13 @@ class memberModel extends member
 		if(!isset($GLOBALS['__member_info__']['image_name'][$member_srl]))
 		{
 			$image_name_file = sprintf('files/member_extra_info/image_name/%s%d.gif', getNumberingPath($member_srl), $member_srl);
-			if(file_exists($image_name_file))
+			if(file_exists(\RX_BASEDIR . $image_name_file))
 			{
-				list($width, $height, $type, $attrs) = getimagesize($image_name_file);
+				list($width, $height, $type, $attrs) = getimagesize(\RX_BASEDIR . $image_name_file);
 				$info = new stdClass;
 				$info->width = $width;
 				$info->height = $height;
-				$info->src = \RX_BASEURL . $image_name_file. '?' . date('YmdHis', filemtime($image_name_file));
+				$info->src = \RX_BASEURL . $image_name_file. '?' . date('YmdHis', filemtime(\RX_BASEDIR . $image_name_file));
 				$info->file = './'.$image_name_file;
 				$GLOBALS['__member_info__']['image_name'][$member_srl] = $info;
 			}
@@ -1065,13 +1133,13 @@ class memberModel extends member
 		if(!isset($GLOBALS['__member_info__']['image_mark'][$member_srl]))
 		{
 			$image_mark_file = sprintf('files/member_extra_info/image_mark/%s%d.gif', getNumberingPath($member_srl), $member_srl);
-			if(file_exists($image_mark_file))
+			if(file_exists(\RX_BASEDIR . $image_mark_file))
 			{
-				list($width, $height, $type, $attrs) = getimagesize($image_mark_file);
+				list($width, $height, $type, $attrs) = getimagesize(\RX_BASEDIR . $image_mark_file);
 				$info = new stdClass;
 				$info->width = $width;
 				$info->height = $height;
-				$info->src = \RX_BASEURL . $image_mark_file . '?' . date('YmdHis', filemtime($image_mark_file));
+				$info->src = \RX_BASEURL . $image_mark_file . '?' . date('YmdHis', filemtime(\RX_BASEDIR . $image_mark_file));
 				$info->file = './'.$image_mark_file;
 				$GLOBALS['__member_info__']['image_mark'][$member_srl] = $info;
 			}

@@ -89,18 +89,18 @@
 				<tr>
 					<th class="nowr">{$lang->cmd_signup}</td>
 					<td class="nowr">
-						&nbsp;{$lang->point_given_prefix}
+						{strtr($lang->point_given_prefix, ['$'.'point' => $config->point_name])}
 						<input type="number" value="{$config->signup_point ?: '0'}" name="signup_point" id="signup_point" />
-						&nbsp;{$lang->point_given_suffix}
+						&nbsp;{strtr($lang->point_given_suffix, ['$'.'point' => $config->point_name])}
 					</td>
 					<td class="nowr"></td>
 				</tr>
 				<tr>
 					<th class="nowr">{$lang->cmd_login}</td>
 					<td class="nowr">
-						&nbsp;{$lang->point_given_prefix}
+						{strtr($lang->point_given_prefix, ['$'.'point' => $config->point_name])}
 						<input type="number" value="{$config->login_point ?: '0'}" name="login_point" id="login_point" />
-						&nbsp;{$lang->point_given_suffix}
+						&nbsp;{strtr($lang->point_given_suffix, ['$'.'point' => $config->point_name])}
 					</td>
 					<td class="nowr"></td>
 				</tr>
@@ -108,9 +108,9 @@
 					<tr>
 						<th class="nowr">{lang('point_' . $action_type)}</td>
 						<td class="nowr">
-							&nbsp;{$lang->point_given_prefix}
+							{strtr($lang->point_given_prefix, ['$'.'point' => $config->point_name])}
 							<input type="number" value="{$config_array[$action_type] ?: '0'}" name="{$action_type}" id="{$action_type}" />
-							&nbsp;{$lang->point_given_suffix}
+							&nbsp;{strtr($lang->point_given_suffix, ['$'.'point' => $config->point_name])}
 							<block cond="$action_config['except_notice']">
 								<label class="x_inline" for="{$action_type}_except_notice" style="margin-left:10px">
 									<input type="checkbox" value="Y" name="{$action_type}_except_notice" id="{$action_type}_except_notice" checked="checked"|cond="$config_array[$action_type . '_except_notice']" />
@@ -162,11 +162,13 @@
 				</select>
 			</div>
 		</div>
-		<div class="x_control-group" loop="$group_list => $key,$val">
+		<div class="x_control-group" loop="$group_list => $key,$val" cond="$val->is_admin != 'Y'">
 			<label class="x_control-label" for="point_group_{$key}">{$val->title}</label>
 			<div class="x_controls">
-				<input cond="$val->is_default != 'Y'" type="number" min="0" max="1000" value="{$config->point_group[$key]}" name="point_group_{$key}" id="point_group_{$key}" style="width:50px" />
+				<!--@if($val->is_default != 'Y')-->
+				<input type="number" min="0" max="1000" value="{$config->point_group[$key]}" name="point_group_{$key}" id="point_group_{$key}" style="width:50px" />
 				&nbsp;{$lang->level}
+				<!--@end-->
 				<span cond="$val->is_default == 'Y'" style="display:inline-block;padding-top:3px">{$lang->default_group}</span>
 			</div>
 		</div>
@@ -195,7 +197,7 @@
 			</tr>
 			<tr>
 				<td>1</td>
-				<td><img src="{getUrl()}modules/point/icons/{$config->level_icon}/1.gif" alt="1" /></td>
+				<td><img src="{getUrl()}modules/point/icons/{$config->level_icon}/1.{$config->level_icon_type ?? 'gif'}" alt="1" /></td>
 				<td><label for="level_step_1" style="margin:0"><input type="number" id="level_step_1" class="level_step" value="{$config->level_step[1]}" style="width:120px;text-align:right" /> {$config->point_name}</label></td>
 {@$point_group_item = $point_group[1]}
 {@$title=array()}
@@ -219,7 +221,7 @@
 <!--@end-->
 			<tr class="row{(($i-1)%2+1)}">
 				<td>{$i}</td>
-				<td><img src="{getUrl()}modules/point/icons/{$config->level_icon}/{$i}.gif" alt="{$i}" /></td>
+				<td><img src="{getUrl()}modules/point/icons/{$config->level_icon}/{$i}.{$config->level_icon_type ?? 'gif'}" alt="{$i}" /></td>
 				<td><label for="level_step_{$i}" style="margin:0"><input type="number" id="level_step_{$i}" class="level_step" value="{$config->level_step[$i]}" style="width:120px;text-align:right" /> {$config->point_name}</label></td>
 				<td>{implode(', ', $title)}</td>
 			</tr>

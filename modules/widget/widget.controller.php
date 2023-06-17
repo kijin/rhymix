@@ -273,8 +273,13 @@ class widgetController extends widget
 	 */
 	function transWidget($matches)
 	{
-		$vars = new stdClass;
 		$xml = simplexml_load_string(trim($matches[0]));
+		if ($xml === false)
+		{
+			return '<div>Invalid XML in widget code.</div>';
+		}
+		
+		$vars = new stdClass;
 		foreach ($xml->img ? $xml->img->attributes() : $xml->attributes() as $key => $val)
 		{
 			$vars->{$key} = strval($val);
@@ -286,7 +291,7 @@ class widgetController extends widget
 			return $matches[0];
 		}
 		unset($vars->widget);
-
+		
 		return $this->execute($widget, $vars, $this->javascript_mode);
 	}
 
@@ -326,19 +331,16 @@ class widgetController extends widget
 		{
 			$buff = $matches[0][$i];
 			$xml_doc = $oXmlParser->parse(trim($buff));
-
 			$args = $xml_doc->img->attrs;
-			if(!$args) continue;
-			// If you are not caching path
 			$widget = $args->widget;
-			$sequence = $args->widget_sequence;
-			$cache = $args->widget_cache;
-			if(!$cache) continue;
-			if(!$sequence)
+			if(!$args || !$widget || empty($args->widget_cache))
 			{
-				$sequence = sha1(json_encode($args));
+				continue;
 			}
-
+			
+			$args->widget_sequence = $args->widget_sequence ?? 0;
+			$args->colorset = $args->colorset ?? null;
+			
 			foreach($args as $k => $v)
 			{
 				$args->{$k} = urldecode($v);
@@ -346,7 +348,7 @@ class widgetController extends widget
 			
 			foreach($lang_list as $lang_type => $val)
 			{
-				$this->getCache($widget, $args, $lang_type, true, $sequence);
+				$this->getCache($widget, $args, $lang_type, true);
 			}
 		}
 	}
@@ -363,7 +365,7 @@ class widgetController extends widget
 		}
 		
 		// Fix the widget sequence if it is missing
-		$widget_sequence = $override_sequence ?: ($args->widget_sequence ?? 0);
+		$widget_sequence = $override_sequence ?: $args->widget_sequence;
 		if (!$widget_sequence)
 		{
 			$widget_sequence = sha1(json_encode($args));
@@ -425,7 +427,7 @@ class widgetController extends widget
 			$cache_content->variables = new stdClass();
 			foreach($widget_var_matches as $matches)
 			{
-				if($matches[2])
+				if(isset($matches[2]) && $matches[2])
 				{
 					$key = str_replace('?$__Context->', '', $matches[2]);
 					$cache_content->variables->{$key} = Context::get($key);
@@ -458,8 +460,12 @@ class widgetController extends widget
 				if($escaped) $args->{$key} = utf8RawUrlDecode($val);
 			}
 		}
-
-
+		
+		// Set default
+		$args->widget_sequence = $args->widget_sequence ?? 0;
+		$args->widget_cache = $args->widget_cache ?? 0;
+		$args->colorset = $args->colorset ?? null;
+		
 		/**
 		 * Widgets widgetContent/widgetBox Wanted If you are not content
 		 */

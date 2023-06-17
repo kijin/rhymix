@@ -33,7 +33,7 @@ class installController extends install
 		$config = Context::gets('db_type', 'db_host', 'db_port', 'db_user', 'db_pass', 'db_database', 'db_prefix');
 		
 		// Disallow installation using the root account.
-		if (trim($config->db_user) === 'root')
+		if (trim($config->db_user) === 'root' && !preg_match('/Development Server$/', $_SERVER['SERVER_SOFTWARE']))
 		{
 			return new BaseObject(-1, 'msg_dbroot_disallowed');
 		}
@@ -320,7 +320,9 @@ class installController extends install
 		$license_agreement_time = intval(trim(FileHandler::readFile($this->flagLicenseAgreement)));
 		if(isset($_SESSION['license_agreement']) && (!$license_agreement_time || ($license_agreement_time == $_SESSION['license_agreement'])))
 		{
-			if(ini_get('session.auto_start') == 0)
+			$sess_autostart = intval(ini_get('session.auto_start'));
+			
+			if($sess_autostart === 0)
 			{
 				$checklist['session'] = true;
 			}
@@ -456,7 +458,6 @@ class installController extends install
 	 */
 	function installDownloadedModule()
 	{
-		$oModuleModel = getModel('module');
 		// Create a table ny finding schemas/*.xml file in each module
 		$module_list = FileHandler::readDir('./modules/', NULL, false, true);
 		$modules = array();
@@ -464,16 +465,29 @@ class installController extends install
 		{
 			// Get module name
 			$module = basename($module_path);
-			$xml_info = $oModuleModel->getModuleInfoXml($module);
-			if(!$xml_info) continue;
-			$modules[$xml_info->category][] = $module;
+			
+			// Only install default modules at this time
+			if (!Context::isDefaultPlugin($module, 'module'))
+			{
+				continue;
+			}
+			
+			// Try to group modules by category
+			$xml_info = ModuleModel::getModuleInfoXml($module);
+			if (!$xml_info)
+			{
+				continue;
+			}
+			$modules[$xml_info->category ?: 'other'][] = $module;
 		}
+		
 		// Install "module" module in advance
 		$this->installModule('module','./modules/module');
-		$oModule = getClass('module');
-		if($oModule->checkUpdate()) $oModule->moduleUpdate();
+		$this->updateModule('module');
+		
 		// Determine the order of module installation depending on category
 		$install_step = array('system','content','member');
+		
 		// Install all the remaining modules
 		foreach($install_step as $category)
 		{
@@ -483,16 +497,12 @@ class installController extends install
 				{
 					if($module == 'module') continue;
 					$this->installModule($module, sprintf('./modules/%s', $module));
-
-					$oModule = getClass($module);
-					if(is_object($oModule) && method_exists($oModule, 'checkUpdate'))
-					{
-						if($oModule->checkUpdate()) $oModule->moduleUpdate();
-					}
+					$this->updateModule($module);
 				}
 				unset($modules[$category]);
 			}
 		}
+		
 		// Install all the remaining modules
 		if(count($modules))
 		{
@@ -504,12 +514,7 @@ class installController extends install
 					{
 						if($module == 'module') continue;
 						$this->installModule($module, sprintf('./modules/%s', $module));
-
-						$oModule = getClass($module);
-						if($oModule && method_exists($oModule, 'checkUpdate') && method_exists($oModule, 'moduleUpdate'))
-						{
-							if($oModule->checkUpdate()) $oModule->moduleUpdate();
-						}
+						$this->updateModule($module);
 					}
 				}
 			}
@@ -528,7 +533,7 @@ class installController extends install
 		// Create a table if the schema xml exists in the "schemas" directory of the module
 		$schema_dir = sprintf('%s/schemas/', $module_path);
 		$schema_files = FileHandler::readDir($schema_dir, NULL, false, true);
-
+		$schema_sorted = [];
 		foreach ($schema_files as $filename)
 		{
 			if (!preg_match('/\/([a-zA-Z0-9_]+)\.xml$/', $filename, $matches))
@@ -541,21 +546,49 @@ class installController extends install
 			}
 			
 			$table_name = $matches[1];
-			if($oDB->isTableExists($table_name))
+			if(isset($schema_sorted[$table_name]) || $oDB->isTableExists($table_name))
 			{
 				continue;
 			}
+			
+			$schema_sorted[$table_name] = $filename;
+		}
+		
+		$schema_sorted = Rhymix\Framework\Parsers\DBTableParser::resolveDependency($schema_sorted);
+		foreach ($schema_sorted as $table_name => $filename)
+		{
 			$output = $oDB->createTable($filename);
 			if(!$output->toBool())
 			{
 				throw new Exception(lang('msg_create_table_failed') . ': ' . $table_name . ': ' . $oDB->getError()->getMessage());
 			}
 		}
+		
 		// Create a table and module instance and then execute install() method
-		unset($oModule);
-		$oModule = getClass($module);
-		if(method_exists($oModule, 'moduleInstall')) $oModule->moduleInstall();
+		$oModule = ModuleModel::getModuleInstallClass($module);
+		if($oModule && method_exists($oModule, 'moduleInstall'))
+		{
+			$oModule->moduleInstall();
+		}
 		return new BaseObject();
+	}
+	
+	/**
+	 * Update a module if necessary.
+	 * 
+	 * @param string $module
+	 * @return mixed
+	 */
+	public function updateModule($module)
+	{
+		$oModule = ModuleModel::getModuleInstallClass($module);
+		if (is_object($oModule) && method_exists($oModule, 'checkUpdate') && method_exists($oModule, 'moduleUpdate'))
+		{
+			if ($oModule->checkUpdate())
+			{
+				return $oModule->moduleUpdate();
+			}
+		}
 	}
 	
 	/**

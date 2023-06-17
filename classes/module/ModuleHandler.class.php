@@ -176,7 +176,7 @@ class ModuleHandler extends Handler
 		}
 
 		// Get module info from document_srl.
-		if($this->document_srl && !$this->module)
+		if($this->document_srl)
 		{
 			$module_info = $this->_checkDocumentSrl();
 			if ($module_info === false)
@@ -232,7 +232,6 @@ class ModuleHandler extends Handler
 			$this->mid = $module_info->mid;
 			$this->module_info = $module_info;
 			$this->_setModuleSEOInfo($module_info, $site_module_info);
-			$this->_setModuleColorScheme($site_module_info);
 			
 			// Check if the current request is from a mobile device.
 			$this->is_mobile = Mobile::isFromMobilePhone();
@@ -274,6 +273,8 @@ class ModuleHandler extends Handler
 			$this->module_info->mid = $this->mid;
 		}
 
+		$this->_setModuleColorScheme($site_module_info);
+		
 		// Always overwrite site_srl (deprecated)
 		$this->module_info->site_srl = $site_module_info->site_srl;
 
@@ -346,9 +347,10 @@ class ModuleHandler extends Handler
 
 		// get type, kind
 		$type = $xml_info->action->{$this->act}->type ?? null;
+		$class_name = $xml_info->action->{$this->act}->class_name ?? null;
 		$ruleset = $xml_info->action->{$this->act}->ruleset ?? null;
 		$meta_noindex = $xml_info->action->{$this->act}->meta_noindex ?? null;
-		$kind = stripos($this->act, 'admin') !== FALSE ? 'admin' : '';
+		$kind = (stripos($this->act, 'admin') !== false || stripos($class_name, 'admin') !== false) ? 'admin' : '';
 		if ($meta_noindex === 'true')
 		{
 			Context::addMetaTag('robots', 'noindex');
@@ -359,26 +361,16 @@ class ModuleHandler extends Handler
 			$kind = 'admin';
 		}
 
-		// check REQUEST_METHOD in controller
-		if($type == 'controller')
+		// check REQUEST_METHOD
+		if(isset($xml_info->action->{$this->act}))
 		{
-			$allowedMethod = $xml_info->action->{$this->act}->method;
-
-			if(!$allowedMethod)
-			{
-				$allowedMethodList[0] = 'POST';
-			}
-			else
-			{
-				$allowedMethodList = explode('|', strtoupper($allowedMethod));
-			}
-
-			if(!in_array(strtoupper($_SERVER['REQUEST_METHOD']), $allowedMethodList))
+			$allowedMethodList = explode('|', $xml_info->action->{$this->act}->method);
+			if(!in_array($_SERVER['REQUEST_METHOD'], $allowedMethodList))
 			{
 				return self::_createErrorMessage(-1, 'msg_method_not_allowed', 405);
 			}
 		}
-		
+
 		// check CSRF for non-GET (POST, PUT, etc.) actions
 		if(Context::getRequestMethod() !== 'GET' && Context::isInstalled())
 		{
@@ -389,11 +381,18 @@ class ModuleHandler extends Handler
 		}
 		
 		// check if the current action allows standalone access (without mid)
-		if(!$this->mid && isset($xml_info->action->{$this->act}) && $xml_info->action->{$this->act}->standalone === 'false')
+		if(isset($xml_info->action->{$this->act}))
 		{
-			return self::_createErrorMessage(-1, 'msg_invalid_request');
+			if($xml_info->action->{$this->act}->standalone === 'auto' && (!$this->module && !$this->mid))
+			{
+				return self::_createErrorMessage(-1, 'msg_invalid_request');
+			}
+			if($xml_info->action->{$this->act}->standalone === 'false' && !$this->mid)
+			{
+				return self::_createErrorMessage(-1, 'msg_invalid_request');
+			}
 		}
-	
+
 		if(!isset($this->module_info->use_mobile))
 		{
 			$this->module_info->use_mobile = 'N';
@@ -401,33 +400,62 @@ class ModuleHandler extends Handler
 		if($this->module_info->use_mobile !== 'Y')
 		{
 			Mobile::setMobile(FALSE);
+			$this->is_mobile = Mobile::isFromMobilePhone();
 		}
 
 		$logged_info = Context::get('logged_info');
 
-		// if(type == view, and case for using mobilephone)
-		if($type == "view" && $this->is_mobile && Context::isInstalled())
+		// Create an instance of the requested module and class
+		if($class_name)
+		{
+			$class_fullname = sprintf('Rhymix\\Modules\\%s\\%s', $this->module, $class_name);
+			if (class_exists($class_fullname))
+			{
+				$oModule = $class_fullname::getInstance();
+			}
+			else
+			{
+				return self::_createErrorMessage(-1, 'msg_module_class_not_found', 404);
+			}
+		}
+		elseif($type == "view" && $this->is_mobile && Context::isInstalled())
 		{
 			$orig_type = "view";
 			$type = "mobile";
-			// create a module instance
 			$oModule = self::getModuleInstance($this->module, $type, $kind);
 			if(!is_object($oModule) || !method_exists($oModule, $this->act))
 			{
 				$type = $orig_type;
 				Mobile::setMobile(FALSE);
+				$this->is_mobile = Mobile::isFromMobilePhone();
 				$oModule = self::getModuleInstance($this->module, $type, $kind);
 			}
 		}
 		else
 		{
-			// create a module instance
-			$oModule = self::getModuleInstance($this->module, $type, $kind);
+			$oModule = self::getModuleInstance($this->module, $type ?: 'class', $kind);
+			if (!$oModule)
+			{
+				$base_class_fullname = sprintf('Rhymix\\Modules\\%s\\Base', $this->module);
+				if (class_exists($base_class_fullname))
+				{
+					$oModule = $base_class_fullname::getInstance();
+				}
+				else
+				{
+					$base_class_fullname = sprintf('Rhymix\\Modules\\%s\\Controllers\\Base', $this->module);
+					if (class_exists($base_class_fullname))
+					{
+						$oModule = $base_class_fullname::getInstance();
+					}
+				}
+			}
 		}
 
-		if(!is_object($oModule))
+		// If the base module is not found, return an error now.
+		if (!isset($oModule) || !is_object($oModule))
 		{
-			return self::_createErrorMessage(-1, $this->error, $this->httpStatusCode);
+			return self::_createErrorMessage(-1, 'msg_module_is_not_exists', 404);
 		}
 
 		// If there is no such action in the module object
@@ -439,23 +467,32 @@ class ModuleHandler extends Handler
 			}
 			
 			// 1. Look for the module with action name
-			if(preg_match('/^([a-z]+)([A-Z])([a-z0-9\_]+)(.*)$/', $this->act, $matches))
+			if(preg_match('/^[a-z]+([A-Z][a-z0-9\_]+).*$/', $this->act, $matches))
 			{
-				$module = strtolower($matches[2] . $matches[3]);
+				$module = strtolower($matches[1]);
 				$xml_info = ModuleModel::getModuleActionXml($module);
 
-				if($xml_info->action->{$this->act} && ($this->module == 'admin' || $xml_info->action->{$this->act}->standalone != 'false'))
+				if(!isset($xml_info->action->{$this->act}))
+				{
+					return self::_createErrorMessage(-1, 'msg_invalid_request');
+				}
+				elseif ($xml_info->action->{$this->act}->standalone === 'auto' && $this->module !== 'admin' && $this->module !== $module)
+				{
+					return self::_createErrorMessage(-1, 'msg_invalid_request');
+				}
+				elseif ($xml_info->action->{$this->act}->standalone === 'false' && $this->module !== 'admin')
+				{
+					return self::_createErrorMessage(-1, 'msg_invalid_request');
+				}
+				else
 				{
 					$forward = new stdClass();
 					$forward->module = $module;
 					$forward->type = $xml_info->action->{$this->act}->type;
+					$forward->class_name = $xml_info->action->{$this->act}->class_name;
 					$forward->ruleset = $xml_info->action->{$this->act}->ruleset;
 					$forward->meta_noindex = $xml_info->action->{$this->act}->meta_noindex;
 					$forward->act = $this->act;
-				}
-				else
-				{
-					return self::_createErrorMessage(-1, 'msg_invalid_request');
 				}
 			}
 			
@@ -466,7 +503,7 @@ class ModuleHandler extends Handler
 			
 			if(!empty($forward->module))
 			{
-				$kind = stripos($forward->act, 'admin') !== FALSE ? 'admin' : '';
+				$kind = (stripos($forward->act, 'admin') !== false || stripos($forward->class_name, 'admin') !== false) ? 'admin' : '';
 				$type = $forward->type;
 				$ruleset = $forward->ruleset;
 				$tpl_path = $oModule->getTemplatePath();
@@ -487,27 +524,13 @@ class ModuleHandler extends Handler
 					}
 				}
 				
-				// SECISSUE also check foward act method
-				// check REQUEST_METHOD in controller
-				if($type == 'controller')
+				// SECISSUE also check REQUEST_METHOD for forwarded actions
+				$allowedMethodList = explode('|', $xml_info->action->{$this->act}->method);
+				if(!in_array($_SERVER['REQUEST_METHOD'], $allowedMethodList))
 				{
-					$allowedMethod = $xml_info->action->{$forward->act}->method;
-
-					if(!$allowedMethod)
-					{
-						$allowedMethodList[0] = 'POST';
-					}
-					else
-					{
-						$allowedMethodList = explode('|', strtoupper($allowedMethod));
-					}
-
-					if(!in_array(strtoupper($_SERVER['REQUEST_METHOD']), $allowedMethodList))
-					{
-						return self::_createErrorMessage(-1, 'msg_method_not_allowed', 405);
-					}
+					return self::_createErrorMessage(-1, 'msg_method_not_allowed', 405);
 				}
-				
+
 				// check CSRF for non-GET (POST, PUT, etc.) actions
 				if(Context::getRequestMethod() !== 'GET' && Context::isInstalled())
 				{
@@ -517,7 +540,19 @@ class ModuleHandler extends Handler
 					}
 				}
 				
-				if($type == "view" && $this->is_mobile)
+				if($forward->class_name)
+				{
+					$class_fullname = sprintf('Rhymix\\Modules\\%s\\%s', $forward->module, $forward->class_name);
+					if (class_exists($class_fullname))
+					{
+						$oModule = $class_fullname::getInstance();
+					}
+					else
+					{
+						return self::_createErrorMessage(-1, 'msg_module_class_not_found', 404);
+					}
+				}
+				elseif($type == "view" && $this->is_mobile)
 				{
 					$orig_type = "view";
 					$type = "mobile";
@@ -527,6 +562,7 @@ class ModuleHandler extends Handler
 					{
 						$type = $orig_type;
 						Mobile::setMobile(FALSE);
+						$this->is_mobile = Mobile::isFromMobilePhone();
 						$oModule = self::getModuleInstance($forward->module, $type, $kind);
 					}
 				}
@@ -534,7 +570,7 @@ class ModuleHandler extends Handler
 				{
 					$oModule = self::getModuleInstance($forward->module, $type, $kind);
 				}
-				
+						
 				if(!is_object($oModule))
 				{
 					return self::_createErrorMessage(-1, 'msg_module_is_not_exists', 404);
@@ -770,7 +806,11 @@ class ModuleHandler extends Handler
 	 */
 	protected function _setModuleColorScheme($site_module_info)
 	{
-		$color_scheme = $site_module_info->settings->color_scheme ?? Rhymix\Framework\UA::getColorScheme();
+		$color_scheme = ($site_module_info->settings->color_scheme ?? '') ?: 'auto';
+		if ($color_scheme === 'auto')
+		{
+			$color_scheme = Rhymix\Framework\UA::getColorScheme();
+		}
 		if (!in_array($color_scheme, ['auto', 'light', 'dark']))
 		{
 			$color_scheme = 'auto';
@@ -808,29 +848,29 @@ class ModuleHandler extends Handler
 		
 		// Set meta keywords.
 		$module_config = ModuleModel::getModuleConfig('module');
-		if ($module_info->meta_keywords)
+		if (!empty($module_info->meta_keywords))
 		{
 			Context::addMetaTag('keywords', $module_info->meta_keywords);
 		}
-		elseif ($site_module_info->settings->meta_keywords)
+		elseif (!empty($site_module_info->settings->meta_keywords))
 		{
 			Context::addMetaTag('keywords', $site_module_info->settings->meta_keywords);
 		}
-		elseif ($module_config->meta_keywords)
+		elseif (!empty($module_config->meta_keywords))
 		{
 			Context::addMetaTag('keywords', $module_config->meta_keywords);
 		}
 		
 		// Set meta description.
-		if ($module_info->meta_description)
+		if (!empty($module_info->meta_description))
 		{
 			Context::addMetaTag('description', $module_info->meta_description);
 		}
-		elseif ($site_module_info->settings->meta_description)
+		elseif (!empty($site_module_info->settings->meta_description))
 		{
 			Context::addMetaTag('description', $site_module_info->settings->meta_description);
 		}
-		elseif($module_config->meta_description)
+		elseif (!empty($module_config->meta_description))
 		{
 			Context::addMetaTag('description', $module_config->meta_description);
 		}
@@ -959,24 +999,21 @@ class ModuleHandler extends Handler
 			// Handle iframe form submissions.
 			if(isset($_POST['_rx_ajax_form']) && starts_with('_rx_temp_iframe_', $_POST['_rx_ajax_form']))
 			{
-				$script = '';
-				if(!$oModule->toBool())
+				$data = [];
+				if ($this->error)
 				{
-					$script .= sprintf('window.parent.alert(%s);', json_encode($oModule->getMessage()));
+					$data['error'] = -1;
+					$data['message'] = lang($this->error);
 				}
 				else
 				{
-					if($oModule->getMessage() && $oModule->getMessage() !== 'success')
-					{
-						$script .= sprintf('window.parent.rhymix_alert(%s, %s);', json_encode($oModule->getMessage()), json_encode($oModule->getRedirectUrl()));
-					}
-					if($oModule->getRedirectUrl())
-					{
-						$script .= sprintf('window.parent.redirect(%s);', json_encode($oModule->getRedirectUrl()));
-					}
+					$data['error'] = $oModule->error;
+					$data['message'] = lang($oModule->message);
 				}
+				$data = array_merge($data, $oModule->getVariables());
+				
 				ob_end_clean();
-				echo sprintf('<html><head></head><body><script>%s window.parent.remove_iframe(%s);</script></body></html>', $script, json_encode($_POST['_rx_ajax_form']));
+				echo sprintf('<html><head></head><body><script>parent.XE.handleIframeResponse(%s, %s);</script></body></html>', json_encode(strval($_POST['_rx_ajax_form'])), json_encode($data));
 				return;
 			}
 			
@@ -992,7 +1029,17 @@ class ModuleHandler extends Handler
 				else
 				{
 					ob_end_clean();
-					header('location: ' . $oModule->getRedirectUrl());
+					if (in_array($oModule->getHttpStatusCode(), [301, 303, 307, 308]))
+					{
+						self::_setHttpStatusMessage($oModule->getHttpStatusCode());
+					}
+					else
+					{
+						self::_setHttpStatusMessage(302);
+					}
+					header(sprintf('HTTP/1.1 %d %s', Context::get('http_status_code'), Context::get('http_status_message')));
+					header(sprintf('Location: %s', $oModule->getRedirectUrl()));
+					Context::setCacheControl(0);
 					return;
 				}
 			}
@@ -1229,8 +1276,20 @@ class ModuleHandler extends Handler
 			$type = $item->type;
 			$called_method = $item->called_method;
 
-			// todo why don't we call a normal class object ?
-			$oModule = getModule($module, $type);
+			// Get instance of module class
+			if (strpos($type, '\\') !== false)
+			{
+				$class_name = sprintf('Rhymix\\Modules\\%s\\%s', $module, $type);
+				if (class_exists($class_name))
+				{
+					$oModule = $class_name::getInstance();
+				}
+			}
+			else
+			{
+				$oModule = getModule($module, $type);
+			}
+
 			if(!$oModule || !method_exists($oModule, $called_method))
 			{
 				continue;

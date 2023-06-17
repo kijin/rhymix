@@ -11,7 +11,6 @@
  */
 class commentController extends comment
 {
-
 	/**
 	 * Initialization
 	 * @return void
@@ -40,16 +39,17 @@ class commentController extends comment
 		{
 			throw new Rhymix\Framework\Exceptions\InvalidRequest;
 		}
-
-		$oComment = CommentModel::getComment($comment_srl, FALSE, FALSE);
-		$module_srl = $oComment->get('module_srl');
-		if(!$module_srl)
+		$oComment = CommentModel::getComment($comment_srl, false, false);
+		if(!$oComment->isExists())
 		{
-			throw new Rhymix\Framework\Exceptions\InvalidRequest;
+			throw new Rhymix\Framework\Exceptions\TargetNotFound;
 		}
-
-		$comment_config = ModuleModel::getModulePartConfig('comment', $module_srl);
-		if($comment_config->use_vote_up == 'N')
+		if(!$oComment->isAccessible(true))
+		{
+			throw new Rhymix\Framework\Exceptions\NotPermitted;
+		}
+		$comment_config = ModuleModel::getModulePartConfig('comment', $oComment->get('module_srl'));
+		if($comment_config->use_vote_up === 'N')
 		{
 			throw new Rhymix\Framework\Exceptions\FeatureDisabled;
 		}
@@ -71,13 +71,24 @@ class commentController extends comment
 		}
 
 		$comment_srl = Context::get('target_srl');
-		if(!$comment_srl) throw new Rhymix\Framework\Exceptions\InvalidRequest;
-
-		$oComment = CommentModel::getComment($comment_srl, FALSE, FALSE);
+		if(!$comment_srl)
+		{
+			throw new Rhymix\Framework\Exceptions\InvalidRequest;
+		}
+		$oComment = CommentModel::getComment($comment_srl, false, false);
+		if(!$oComment->isExists())
+		{
+			throw new Rhymix\Framework\Exceptions\TargetNotFound;
+		}
+		if(!$oComment->isAccessible(true))
+		{
+			throw new Rhymix\Framework\Exceptions\NotPermitted;
+		}
 		if($oComment->get('voted_count') <= 0)
 		{
 			throw new Rhymix\Framework\Exception('failed_voted_canceled');
 		}
+		
 		$point = 1;
 		$output = $this->updateVotedCountCancel($comment_srl, $oComment, $point);
 
@@ -107,16 +118,17 @@ class commentController extends comment
 		{
 			throw new Rhymix\Framework\Exceptions\InvalidRequest;
 		}
-
-		$oComment = CommentModel::getComment($comment_srl, FALSE, FALSE);
-		$module_srl = $oComment->get('module_srl');
-		if(!$module_srl)
+		$oComment = CommentModel::getComment($comment_srl, false, false);
+		if(!$oComment->isExists())
 		{
-			throw new Rhymix\Framework\Exceptions\InvalidRequest;
+			throw new Rhymix\Framework\Exceptions\TargetNotFound;
 		}
-
-		$comment_config = ModuleModel::getModulePartConfig('comment', $module_srl);
-		if($comment_config->use_vote_down == 'N')
+		if(!$oComment->isAccessible(true))
+		{
+			throw new Rhymix\Framework\Exceptions\NotPermitted;
+		}
+		$comment_config = ModuleModel::getModulePartConfig('comment', $oComment->get('module_srl'));
+		if($comment_config->use_vote_down === 'N')
 		{
 			throw new Rhymix\Framework\Exceptions\FeatureDisabled;
 		}
@@ -138,13 +150,24 @@ class commentController extends comment
 		}
 
 		$comment_srl = Context::get('target_srl');
-		if(!$comment_srl) throw new Rhymix\Framework\Exceptions\InvalidRequest;
-
-		$oComment = CommentModel::getComment($comment_srl, FALSE, FALSE);
+		if(!$comment_srl)
+		{
+			throw new Rhymix\Framework\Exceptions\InvalidRequest;
+		}
+		$oComment = CommentModel::getComment($comment_srl, false, false);
+		if(!$oComment->isExists())
+		{
+			throw new Rhymix\Framework\Exceptions\TargetNotFound;
+		}
+		if(!$oComment->isAccessible(true))
+		{
+			throw new Rhymix\Framework\Exceptions\NotPermitted;
+		}
 		if($oComment->get('blamed_count') >= 0)
 		{
 			throw new Rhymix\Framework\Exception('failed_blamed_canceled');
 		}
+		
 		$point = -1;
 		$output = $this->updateVotedCountCancel($comment_srl, $oComment, $point);
 
@@ -171,6 +194,7 @@ class commentController extends comment
 		}
 		else
 		{
+			$args->member_srl = 0;
 			$args->ipaddress = \RX_CLIENT_IP;
 		}
 		$output = executeQuery('comment.getCommentVotedLogInfo', $args);
@@ -243,7 +267,16 @@ class commentController extends comment
 		{
 			throw new Rhymix\Framework\Exceptions\InvalidRequest;
 		}
-
+		$oComment = CommentModel::getComment($comment_srl, false, false);
+		if(!$oComment->isExists())
+		{
+			throw new Rhymix\Framework\Exceptions\TargetNotFound;
+		}
+		if(!$oComment->isAccessible(true))
+		{
+			throw new Rhymix\Framework\Exceptions\NotPermitted;
+		}
+		
 		// if an user select message from options, message would be the option.
 		$message_option = strval(Context::get('message_option'));
 		$improper_comment_reasons = lang('improper_comment_reasons');
@@ -911,7 +944,9 @@ class commentController extends comment
 		{
 			return new BaseObject(-1, 'msg_invalid_request');
 		}
-		$comment = getModel('comment')->getComment($obj->comment_srl);
+		
+		// check if comment exists and permission is granted
+		$comment = CommentModel::getComment($obj->comment_srl);
 		if(!$comment->isExists())
 		{
 			return new BaseObject(-1, 'msg_not_founded');
@@ -928,20 +963,8 @@ class commentController extends comment
 			return $output;
 		}
 
-		// check if comment exists and permission is granted
-		$comment = CommentModel::getComment($obj->comment_srl);
-		if(!$comment->isExists())
-		{
-			return new BaseObject(-1, 'msg_not_founded');
-		}
-		if(!$is_admin && !$comment->isGranted())
-		{
-			return new BaseObject(-1, 'msg_not_permitted');
-		}
-
 		// If the case manager to delete comments, it indicated that the administrator deleted.
-		$logged_info = Context::get('logged_info');
-		if($is_admin === true && $obj->member_srl !== $logged_info->member_srl)
+		if($is_admin === true && $obj->member_srl !== $this->user->member_srl)
 		{
 			$obj->content = lang('msg_admin_deleted_comment');
 			$obj->status = RX_STATUS_DELETED_BY_ADMIN;
@@ -967,12 +990,12 @@ class commentController extends comment
 		}
 
 		// call a trigger (after)
-		ModuleHandler::triggerCall('comment.deleteComment', 'after', $obj);
+		ModuleHandler::triggerCall('comment.deleteComment', 'after', $comment);
 
 		// update the number of comments
 		$comment_count = CommentModel::getCommentCount($obj->document_srl);
 		// only document is exists
-		if(isset($comment_count))
+		if(is_int($comment_count))
 		{
 			// create the controller object of the document
 			$oDocumentController = getController('document');
@@ -1016,7 +1039,7 @@ class commentController extends comment
 		// update the number of comments
 		$comment_count = CommentModel::getCommentCount($obj->document_srl);
 		// only document is exists
-		if(isset($comment_count))
+		if(is_int($comment_count))
 		{
 			// create the controller object of the document
 			$oDocumentController = getController('document');
@@ -1045,21 +1068,22 @@ class commentController extends comment
 	 */
 	function deleteComment($comment_srl, $is_admin = FALSE, $isMoveToTrash = FALSE, $childs = null)
 	{
-		$logged_info = Context::get('logged_info');
-
 		// check if comment already exists
 		$comment = CommentModel::getComment($comment_srl);
+		
 		if(!$comment->isExists())
 		{
-			return new BaseObject(-1, 'msg_not_founded');
+			return new BaseObject(-2, 'msg_not_founded');
 		}
 		if(!$is_admin && !$comment->isGranted())
 		{
 			return new BaseObject(-1, 'msg_not_permitted');
 		}
 
-		$member_info = MemberModel::getMemberInfo($comment->member_srl);
-		$document_srl = $comment->document_srl;
+		$logged_info = Context::get('logged_info');
+		$member_info = MemberModel::getMemberInfo($comment->get('member_srl'));
+		$module_info = ModuleModel::getModuleInfo($comment->get('module_srl'));
+		$document_srl = $comment->get('document_srl');
 
 		// call a trigger (before)
 		$comment->isMoveToTrash = $isMoveToTrash ? true : false;
@@ -1080,7 +1104,6 @@ class commentController extends comment
 			$deleteAdminComment = TRUE;
 			if(!$is_admin)
 			{
-				$logged_info = Context::get('logged_info');
 				foreach($childs as $val)
 				{
 					if($val->member_srl != $logged_info->member_srl)
@@ -1092,14 +1115,16 @@ class commentController extends comment
 			}
 			else if($is_admin)
 			{
-				$logged_info = Context::get('logged_info');
 				foreach($childs as $val)
 				{
-					$c_member_info = MemberModel::getMemberInfoByMemberSrl($val->member_srl);
-					if($c_member_info->is_admin == 'Y' && $logged_info->is_admin != 'Y')
+					if ($module_info->protect_admin_content_delete !== 'N' && $logged_info->is_admin !== 'Y')
 					{
-						$deleteAdminComment = FALSE;
-						break;
+						$c_member_info = MemberModel::getMemberInfoByMemberSrl($val->member_srl);
+						if($c_member_info->is_admin == 'Y')
+						{
+							$deleteAdminComment = FALSE;
+							break;
+						}
 					}
 				}
 			}
@@ -1125,10 +1150,6 @@ class commentController extends comment
 			}
 		}
 
-		if($member_info->is_admin == 'Y' && $logged_info->is_admin != 'Y')
-		{
-			return new BaseObject(-1, 'msg_admin_comment_no_delete');
-		}
 		// begin transaction
 		$oDB = DB::getInstance();
 		$oDB->begin();
@@ -1149,7 +1170,7 @@ class commentController extends comment
 		$comment_count = CommentModel::getCommentCount($document_srl);
 
 		// only document is exists
-		if(isset($comment_count))
+		if(is_int($comment_count))
 		{
 			// create the controller object of the document
 			$oDocumentController = getController('document');
@@ -1181,7 +1202,7 @@ class commentController extends comment
 		}
 
 		// Remove the thumbnail file
-		Rhymix\Framework\Storage::deleteEmptyDirectory(RX_BASEDIR . sprintf('files/thumbnails/%s', getNumberingPath($comment_srl, 3)), true);
+		Rhymix\Framework\Storage::deleteDirectory(RX_BASEDIR . sprintf('files/thumbnails/%s', getNumberingPath($comment_srl, 3)));
 
 		// commit
 		$oDB->commit();
@@ -1198,19 +1219,8 @@ class commentController extends comment
 	 */
 	function moveCommentToTrash($obj, $updateComment = false)
 	{
-		// Initialize trash arguments
-		$trash_args = new stdClass();
-		if(!$obj->trash_srl)
-		{
-			$trash_args->trash_srl = getNextSequence();
-		}
-		else
-		{
-			$trash_args->trash_srl = $obj->trash_srl;
-		}
-
 		// check if comment exists and permission is granted
-		$oComment = CommentModel::getComment($obj->comment_srl);
+		$oComment = ($obj instanceof commentItem) ? $obj : CommentModel::getComment($obj->comment_srl);
 		if(!$oComment->isExists())
 		{
 			return new BaseObject(-1, 'msg_not_founded');
@@ -1219,7 +1229,11 @@ class commentController extends comment
 		{
 			return new BaseObject(-1, 'msg_not_permitted');
 		}
-		if($this->user->is_admin !== 'Y')
+		
+		$logged_info = Context::get('logged_info');
+		$module_info = ModuleModel::getModuleInfo($oComment->get('module_srl'));
+		
+		if ($module_info->protect_admin_content_delete !== 'N' && $logged_info->is_admin !== 'Y')
 		{
 			$member_info = MemberModel::getMemberInfo($oComment->get('member_srl'));
 			if($member_info->is_admin === 'Y')
@@ -1227,33 +1241,16 @@ class commentController extends comment
 				return new BaseObject(-1, 'msg_admin_comment_no_move_to_trash');
 			}
 		}
-		
-		$obj->module_srl = $oComment->get('module_srl');
-		$trash_args->module_srl = $obj->module_srl;
-		if($trash_args->module_srl === 0)
-		{
-			return new BaseObject(-1, 'msg_module_srl_not_exists');
-		}
-		$trash_args->document_srl = $obj->document_srl;
-		$trash_args->comment_srl = $obj->comment_srl;
-		$trash_args->description = $obj->description;
-		if($this->user->isMember())
-		{
-			$trash_args->member_srl = $this->user->member_srl;
-			$trash_args->user_id = htmlspecialchars_decode($this->user->user_id);
-			$trash_args->user_name = htmlspecialchars_decode($this->user->user_name);
-			$trash_args->nick_name = htmlspecialchars_decode($this->user->nick_name);
-		}
 
-		$oDB = &DB::getInstance();
+		$oDB = DB::getInstance();
 		$oDB->begin();
 
 		require_once(RX_BASEDIR.'modules/trash/model/TrashVO.php');
 		$oTrashVO = new TrashVO();
 		$oTrashVO->setTrashSrl(getNextSequence());
-		$oTrashVO->setTitle(trim(strip_tags($obj->variables['content'])));
+		$oTrashVO->setTitle($oComment->getContentText(200));
 		$oTrashVO->setOriginModule('comment');
-		$oTrashVO->setSerializedObject(serialize($obj->variables));
+		$oTrashVO->setSerializedObject(serialize($oComment->variables));
 		$oTrashVO->setDescription($obj->description);
 
 		$oTrashAdminController = getAdminController('trash');
@@ -1264,9 +1261,17 @@ class commentController extends comment
 			return $output;
 		}
 
-		if($updateComment !== true)
+		if(!$updateComment)
 		{
-			$output = executeQuery('comment.deleteComment', $trash_args);
+			$args = new stdClass;
+			$args->comment_srl = $obj->comment_srl;
+			$output = executeQuery('comment.deleteComment', $args);
+			if(!$output->toBool())
+			{
+				$oDB->rollback();
+				return $output;
+			}
+			$output = executeQuery('comment.deleteCommentList', $args);
 			if(!$output->toBool())
 			{
 				$oDB->rollback();
@@ -1274,21 +1279,11 @@ class commentController extends comment
 			}
 		}
 
-		$args = new stdClass();
-		$args->comment_srl = $obj->comment_srl;
-		$output = executeQuery('comment.deleteCommentList', $args);
-
 		// update the number of comments
-		$comment_count = CommentModel::getCommentCount($obj->document_srl);
-
-		// only document is exists
-		if(isset($comment_count))
+		$comment_count = CommentModel::getCommentCount($oComment->document_srl);
+		if(is_int($comment_count))
 		{
-			// create the controller object of the document
-			$oDocumentController = getController('document');
-
-			// update comment count of the article posting
-			$output = $oDocumentController->updateCommentCount($obj->document_srl, $comment_count, NULL, FALSE);
+			$output = getController('document')->updateCommentCount($oComment->document_srl, $comment_count);
 			if(!$output->toBool())
 			{
 				$oDB->rollback();
@@ -1304,6 +1299,7 @@ class commentController extends comment
 			executeQuery('file.updateFileValid', $args);
 		}
 
+		$obj->module_srl = $oComment->get('module_srl');
 		$obj->document_srl = $oComment->get('document_srl');
 		$obj->parent_srl = $oComment->get('parent_srl');
 		$obj->member_srl = $oComment->get('member_srl');
@@ -1313,9 +1309,10 @@ class commentController extends comment
 
 		$oDB->commit();
 
+		// Remove the thumbnail file
+		Rhymix\Framework\Storage::deleteDirectory(RX_BASEDIR . sprintf('files/thumbnails/%s', getNumberingPath($obj->comment_srl, 3)));
 
-		Rhymix\Framework\Storage::deleteEmptyDirectory(RX_BASEDIR . sprintf('files/thumbnails/%s', getNumberingPath($comment_srl, 3)), true);
-		$output->add('document_srl', $obj->document_srl);
+		$output->add('document_srl', $oComment->document_srl);
 
 		return $output;
 	}
@@ -1476,6 +1473,7 @@ class commentController extends comment
 		}
 		else
 		{
+			$args->member_srl = 0;
 			$args->ipaddress = \RX_CLIENT_IP;
 		}
 		$args->comment_srl = $comment_srl;
@@ -1558,7 +1556,7 @@ class commentController extends comment
 	function declaredComment($comment_srl, $declare_message)
 	{
 		// Fail if session information already has a reported document
-		if($_SESSION['declared_comment'][$comment_srl])
+		if(isset($_SESSION['declared_comment'][$comment_srl]))
 		{
 			return new BaseObject(-1, 'failed_declared');
 		}
@@ -1591,9 +1589,9 @@ class commentController extends comment
 		$oComment = CommentModel::getComment($comment_srl, FALSE, FALSE);
 
 		// failed if both ip addresses between author's and the current user are same.
-		if($oComment->get('ipaddress') == \RX_CLIENT_IP)
+		if($oComment->get('ipaddress') == \RX_CLIENT_IP && !$this->user->isAdmin())
 		{
-			$_SESSION['declared_comment'][$comment_srl] = TRUE;
+			$_SESSION['declared_comment'][$comment_srl] = FALSE;
 			return new BaseObject(-1, 'failed_declared');
 		}
 
@@ -1606,7 +1604,7 @@ class commentController extends comment
 			// session registered if the author information matches to the current logged-in user's.
 			if($member_srl && $member_srl == abs($oComment->get('member_srl')))
 			{
-				$_SESSION['declared_comment'][$comment_srl] = TRUE;
+				$_SESSION['declared_comment'][$comment_srl] = FALSE;
 				return new BaseObject(-1, 'failed_declared');
 			}
 		}
@@ -1625,7 +1623,7 @@ class commentController extends comment
 		$log_output = executeQuery('comment.getCommentDeclaredLogInfo', $args);
 		if($log_output->data->count)
 		{
-			$_SESSION['declared_comment'][$comment_srl] = TRUE;
+			$_SESSION['declared_comment'][$comment_srl] = FALSE;
 			return new BaseObject(-1, 'failed_declared');
 		}
 		
@@ -1691,7 +1689,7 @@ class commentController extends comment
 			$message_content = sprintf('<p><a href="%s">%s</a></p><p>%s</p>', $oComment->getPermanentUrl(), $oComment->getContentText(50), $declare_message);
 			foreach ($message_targets as $target_member_srl => $val)
 			{
-				$oCommunicationController->sendMessage($this->user->member_srl, $target_member_srl, $message_title, $message_content, false);
+				$oCommunicationController->sendMessage($this->user->member_srl, $target_member_srl, $message_title, $message_content, false, null, false);
 			}
 		}
 
@@ -1716,7 +1714,7 @@ class commentController extends comment
 	 * @param strgin $target
 	 * @return void
 	 */
-	function addCommentPopupMenu($url, $str, $icon = '', $target = 'self')
+	function addCommentPopupMenu($url, $str, $icon = '', $target = '_blank')
 	{
 		$comment_popup_menu_list = Context::get('comment_popup_menu_list');
 		if(!is_array($comment_popup_menu_list))

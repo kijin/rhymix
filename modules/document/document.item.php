@@ -149,6 +149,11 @@ class documentItem extends BaseObject
 		$this->document_srl = $attribute->document_srl;
 		$this->lang_code = $attribute->lang_code ?? null;
 		$this->adds($attribute);
+		if(isset($attribute->module_srl))
+		{
+			$this->add('apparent_module_srl', $attribute->module_srl);
+			$this->add('origin_module_srl', $attribute->module_srl);
+		}
 		
 		// set XE_DOCUMENT_LIST
 		$GLOBALS['XE_DOCUMENT_LIST'][$this->document_srl] = $this;
@@ -199,7 +204,7 @@ class documentItem extends BaseObject
 		}
 		
 		$logged_info = Context::get('logged_info');
-		if (!$logged_info->member_srl)
+		if (!$logged_info || !$logged_info->member_srl)
 		{
 			return $this->grant_cache = false;
 		}
@@ -232,11 +237,25 @@ class documentItem extends BaseObject
 		$this->setGrant();
 	}
 	
-	function isAccessible()
+	function isAccessible($strict = false)
 	{
 		if(!$this->isExists())
 		{
 			return false;
+		}
+		
+		if ($strict)
+		{
+			$module_info = ModuleModel::getModuleInfoByModuleSrl($this->get('module_srl'));
+			if (!$module_info)
+			{
+				return false;
+			}
+			$grant = ModuleModel::getGrant($module_info, Context::get('logged_info'));
+			if (isset($grant->list) && isset($grant->view) && ($grant->list !== true || $grant->view !== true))
+			{
+				return false;
+			}
 		}
 		
 		if (isset($_SESSION['accessible'][$this->document_srl]) && $_SESSION['accessible'][$this->document_srl] === $this->get('last_update'))
@@ -406,7 +425,7 @@ class documentItem extends BaseObject
 		
 		// Send a message
 		$sender_member_srl = $logged_info->member_srl ?: $this->get('member_srl');
-		getController('communication')->sendMessage($sender_member_srl, $this->get('member_srl'), $title, $content, false);
+		getController('communication')->sendMessage($sender_member_srl, $this->get('member_srl'), $title, $content, false, null, false);
 	}
 
 	function getLangCode()
@@ -513,11 +532,12 @@ class documentItem extends BaseObject
 		}
 		else
 		{
+			$args->member_srl = 0;
 			$args->ipaddress = \RX_CLIENT_IP;
 		}
 		$args->document_srl = $this->document_srl;
 		$output = executeQuery('document.getDocumentVotedLog', $args);
-		if($output->data->point)
+		if(isset($output->data) && $output->data->point)
 		{
 			return $_SESSION['voted_document'][$this->document_srl] = $output->data->point;
 		}
@@ -557,7 +577,7 @@ class documentItem extends BaseObject
 		}
 		$args->document_srl = $this->document_srl;
 		$output = executeQuery('document.getDocumentDeclaredLogInfo', $args);
-		$declaredCount = intval($output->data->count);
+		$declaredCount = isset($output->data) ? intval($output->data->count) : 0;
 		if($declaredCount > 0)
 		{
 			return $_SESSION['declared_document'][$this->document_srl] = $declaredCount;
@@ -829,18 +849,17 @@ class documentItem extends BaseObject
 		return getFullUrl('', 'mid', $this->getDocumentMid(), 'document_srl', $this->get('document_srl'));
 	}
 
-	function getTrackbackUrl()
+	/**
+	 * @deprecated
+	 */
+	public function getTrackbackUrl()
 	{
-		if(!$this->isExists())
-		{
-			return;
-		}
 		
-		// Generate a key to prevent spams
-		if($oTrackbackModel = getModel('trackback'))
-		{
-			return $oTrackbackModel->getTrackbackUrl($this->document_srl, $this->getDocumentMid());
-		}
+	}
+	
+	public function getUrl()
+	{
+		return getFullUrl('', 'mid', $this->getApparentMid(), 'document_srl', $this->get('document_srl'));
 	}
 
 	public function getTags()
@@ -873,16 +892,24 @@ class documentItem extends BaseObject
 
 	function isExtraVarsExists()
 	{
-		if(!$this->get('module_srl')) return false;
-		$extra_keys = DocumentModel::getExtraKeys($this->get('module_srl'));
-		return count($extra_keys)?true:false;
+		$module_srl = $this->get('module_srl');
+		if(!$module_srl)
+		{
+			return false;
+		}
+		$extra_keys = DocumentModel::getExtraKeys($module_srl);
+		return $extra_keys ? true : false;
 	}
 
 	function getExtraVars()
 	{
-		if(!$this->get('module_srl') || !$this->document_srl) return null;
+		$module_srl = $this->get('module_srl');
+		if(!$module_srl || !$this->document_srl)
+		{
+			return array();
+		}
 
-		return DocumentModel::getExtraVars($this->get('module_srl'), $this->document_srl);
+		return DocumentModel::getExtraVars($module_srl, $this->document_srl);
 	}
 	
 	function getExtraEids()
@@ -1004,11 +1031,11 @@ class documentItem extends BaseObject
 			}
 			if (count($comment_srls))
 			{
-				$v_output = executeQuery('comment.getCommentVotedLogMulti', (object)array(
+				$v_output = executeQueryArray('comment.getCommentVotedLogMulti', array(
 					'comment_srls' => $comment_srls,
 					'member_srl' => $logged_info->member_srl,
 				));
-				foreach ($v_output->data as $data)
+				foreach ($v_output->data ?: [] as $data)
 				{
 					$_SESSION['voted_comment'][$data->comment_srl] = $data->point;
 				}
@@ -1082,7 +1109,11 @@ class documentItem extends BaseObject
 		}
 		
 		// If not specify its height, create a square
-		if(!$height)
+		if(!is_int($width))
+		{
+			$width = intval($width);
+		}
+		if(!$height || (!is_int($height) && !ctype_digit(strval($height)) && $height !== 'auto'))
 		{
 			$height = $width;
 		}
@@ -1091,7 +1122,7 @@ class documentItem extends BaseObject
 		$thumbnail_path = sprintf('files/thumbnails/%s',getNumberingPath($this->document_srl, 3));
 		$thumbnail_file = sprintf('%s%dx%d.%s.jpg', $thumbnail_path, $width, $height, $thumbnail_type);
 		$thumbnail_lockfile = sprintf('%s%dx%d.%s.lock', $thumbnail_path, $width, $height, $thumbnail_type);
-		$thumbnail_url  = Context::getRequestUri().$thumbnail_file;
+		$thumbnail_url = RX_BASEURL . $thumbnail_file;
 		$thumbnail_file = RX_BASEDIR . $thumbnail_file;
 
 		// Return false if thumbnail file exists and its size is 0. Otherwise, return its path
@@ -1166,7 +1197,7 @@ class documentItem extends BaseObject
 				}
 				if($file->cover_image === 'Y')
 				{
-					$source_file = $file->uploaded_filename;
+					$source_file = FileHandler::getRealPath($file->uploaded_filename);
 					break;
 				}
 				if(!$first_image)
@@ -1176,13 +1207,15 @@ class documentItem extends BaseObject
 			}
 			if(!$source_file && $first_image)
 			{
-				$source_file = $first_image;
+				$source_file = FileHandler::getRealPath($first_image);
 			}
 		}
 
 		// If not exists, file an image file from the content
 		if(!$source_file && $config->thumbnail_target !== 'attachment')
 		{
+			$external_image_min_width = min(100, round($trigger_obj->width * 0.3));
+			$external_image_min_height = min(100, round($trigger_obj->height * 0.3));
 			preg_match_all("!<img\s[^>]*?src=(\"|')([^\"' ]*?)(\"|')!is", $content, $matches, PREG_SET_ORDER);
 			foreach($matches as $match)
 			{
@@ -1213,7 +1246,7 @@ class documentItem extends BaseObject
 						if($is_img = @getimagesize($tmp_file))
 						{
 							list($_w, $_h, $_t, $_a) = $is_img;
-							if($_w < ($width * 0.3) && $_h < ($height * 0.3))
+							if($_w < ($external_image_min_width) && ($height === 'auto' || $_h < ($external_image_min_height)))
 							{
 								continue;
 							}
@@ -1229,7 +1262,7 @@ class documentItem extends BaseObject
 				}
 			}
 		}
-
+		
 		if($source_file)
 		{
 			$output_file = FileHandler::createImageFile($source_file, $thumbnail_file, $trigger_obj->width, $trigger_obj->height, $trigger_obj->image_type, $trigger_obj->type, $trigger_obj->quality);
@@ -1308,10 +1341,34 @@ class documentItem extends BaseObject
 		return $buffs;
 	}
 
+	/**
+	 * Return the status code.
+	 * 
+	 * @return string
+	 */
 	function getStatus()
 	{
-		if(!$this->get('status')) return getClass('document')->getDefaultStatus();
-		return $this->get('status');
+		$status = $this->get('status');
+		return $status ?: Document::getDefaultStatus();
+	}
+
+	/**
+	 * Return the status in human-readable text.
+	 * 
+	 * @return string
+	 */
+	function getStatusText()
+	{
+		$status = $this->get('status');
+		$statusList = lang('document.status_name_list');
+		if ($status && isset($statusList[$status]))
+		{
+			return $statusList[$status];
+		}
+		else
+		{
+			return $statusList[Document::getDefaultStatus()];
+		}
 	}
 
 	/**
@@ -1326,29 +1383,35 @@ class documentItem extends BaseObject
 			return;
 		}
 
+		$icons = $this->getExtraImages($time_check);
+		if(!count($icons))
+		{
+			return;
+		}
+
 		$documentConfig = DocumentModel::getDocumentConfig();
 
 		if(Mobile::isFromMobilePhone())
 		{
 			$iconSkin = $documentConfig->micons ?? null;
+			$iconType = $documentConfig->micons_type ?? 'gif';
 		}
 		else
 		{
 			$iconSkin = $documentConfig->icons ?? null;
+			$iconType = $documentConfig->icons_type ?? 'gif';
 		}
 		if($iconSkin == null)
 		{
 			$iconSkin = 'default';
+			$iconType = 'gif';
 		}
-		$path = sprintf('%s%s',getUrl(), "modules/document/tpl/icons/$iconSkin/");
-
-		$buffs = $this->getExtraImages($time_check);
-		if(!count($buffs)) return;
-
+		
+		$path = sprintf('%s%s', \RX_BASEURL, "modules/document/tpl/icons/$iconSkin/");
 		$buff = array();
-		foreach($buffs as $key => $val)
+		foreach($icons as $icon)
 		{
-			$buff[] = sprintf('<img src="%s%s.gif" alt="%s" title="%s" style="margin-right:2px;" />', $path, $val, $val, $val);
+			$buff[] = sprintf('<img src="%s%s.%s" alt="%s" title="%s" style="margin-right:2px;" />', $path, $icon, $iconType, $icon, $icon);
 		}
 		return implode('', $buff);
 	}
@@ -1385,7 +1448,7 @@ class documentItem extends BaseObject
 			return;
 		} 
 		
-		if(!$this->uploadedFiles[$sortIndex])
+		if(!isset($this->uploadedFiles[$sortIndex]))
 		{
 			$this->uploadedFiles[$sortIndex] = FileModel::getFiles($this->document_srl, array(), $sortIndex, true);
 		}
@@ -1399,9 +1462,7 @@ class documentItem extends BaseObject
 	 */
 	function getEditor()
 	{
-		$module_srl = $this->get('module_srl');
-		if(!$module_srl) $module_srl = Context::get('module_srl');
-
+		$module_srl = $this->get('module_srl') ?: Context::get('module_srl');
 		return EditorModel::getModuleEditor('document', $module_srl, $this->document_srl, 'document_srl', 'content');
 	}
 
@@ -1433,8 +1494,8 @@ class documentItem extends BaseObject
 	function getCommentEditor()
 	{
 		if(!$this->isEnableComment()) return;
-
-		return EditorModel::getModuleEditor('comment', $this->get('module_srl'), 0, 'comment_srl', 'content');
+		$module_srl = $this->get('module_srl') ?: Context::get('module_srl');
+		return EditorModel::getModuleEditor('comment', $module_srl, 0, 'comment_srl', 'content');
 	}
 
 	/**
@@ -1514,9 +1575,19 @@ class documentItem extends BaseObject
 		return $output->data;
 	}
 
+	/**
+	 * Returns the apparent mid.
+	 * 
+	 * @return string
+	 */
+	function getApparentMid()
+	{
+		return ModuleModel::getMidByModuleSrl($this->get('apparent_module_srl') ?: $this->get('module_srl'));
+	}
 
 	/**
-	 * Returns the document's mid in order to construct SEO friendly URLs
+	 * Returns the true mid.
+	 * 
 	 * @return string
 	 */
 	function getDocumentMid()

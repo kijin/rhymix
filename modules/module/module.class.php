@@ -15,7 +15,7 @@ class module extends ModuleObject
 		// Insert new domain
 		if(!getModel('module')->getDefaultDomainInfo())
 		{
-			$current_url = Rhymix\Framework\Url::getCurrentUrl();
+			$current_url = Rhymix\Framework\URL::getCurrentUrl();
 			$current_port = intval(parse_url($current_url, PHP_URL_PORT)) ?: null;
 			$domain = new stdClass();
 			$domain->domain_srl = 0;
@@ -27,7 +27,10 @@ class module extends ModuleObject
 			$domain->https_port = RX_SSL ? $current_port : null;
 			$domain->security = config('url.ssl') ?: 'none';
 			$domain->description = '';
-			$domain->settings = json_encode(array('language' => null, 'timezone' => null));
+			$domain->settings = json_encode(array(
+				'language' => 'default',
+				'timezone' => 'default',
+			));
 			$output = executeQuery('module.insertDomain', $domain);
 			if (!$output->toBool())
 			{
@@ -113,6 +116,21 @@ class module extends ModuleObject
 		if(!$oDB->isIndexExists('lang', 'idx_name')) return true;
 		if(!$oDB->isIndexExists('lang', 'idx_lang_code')) return true;
 		if(!$oDB->isIndexExists('lang', 'idx_lang_new')) return true;
+		
+		// check module_trigger table
+		if($oDB->isIndexExists('module_trigger', 'idx_trigger'))
+		{
+			return true;
+		}
+		if(!$oDB->isIndexExists('module_trigger', 'idx_trigger_name'))
+		{
+			return true;
+		}
+		$column_info = $oDB->getColumnInfo('module_trigger', 'type');
+		if($column_info->size < 120)
+		{
+			return true;
+		}
 		
 		// check deprecated lang code
 		$output = executeQuery('module.getLangCount', ['lang_code' => 'jp']);
@@ -244,6 +262,26 @@ class module extends ModuleObject
 			$oDB->addIndex('lang', 'idx_lang_new', array('name', 'lang_code'), false);
 		}
 		
+		// check module_trigger table
+		if($oDB->isIndexExists('module_trigger', 'idx_trigger'))
+		{
+			$oDB->dropIndex('module_trigger', 'idx_trigger');
+		}
+		$column_info = $oDB->getColumnInfo('module_trigger', 'type');
+		if($column_info->size < 120)
+		{
+			$oDB->modifyColumn('module_trigger', 'trigger_name', 'varchar', 80, null, true, null, null, 'latin1');
+			$oDB->modifyColumn('module_trigger', 'called_position', 'varchar', 20, null, true, null, null, 'latin1');
+			$oDB->modifyColumn('module_trigger', 'module', 'varchar', 80, null, true, null, null, 'latin1');
+			$oDB->modifyColumn('module_trigger', 'type', 'varchar', 120, null, true, null, null, 'latin1');
+			$oDB->modifyColumn('module_trigger', 'called_method', 'varchar', 80, null, true, null, null, 'latin1');
+		}
+		if(!$oDB->isIndexExists('module_trigger', 'idx_trigger_name'))
+		{
+			$oDB->addIndex('module_trigger', 'idx_trigger_name', array('trigger_name', 'called_position'));
+			$oDB->addIndex('module_trigger', 'idx_trigger_target', array('module', 'type', 'called_method'));
+		}
+		
 		// check deprecated lang code
 		$output = executeQuery('module.getLangCount', ['lang_code' => 'jp']);
 		if ($output->data->count > 0)
@@ -300,8 +338,8 @@ class module extends ModuleObject
 				$domain->settings = json_encode(array(
 					'title' => $config->siteTitle,
 					'subtitle' => $config->siteSubtitle,
-					'language' => $site_info->default_language,
-					'timezone' => config('locale.default_timezone'),
+					'language' => 'default',
+					'timezone' => 'default',
 					'html_footer' => $config->htmlFooter,
 				));
 				$domain->regdate = $site_info->regdate;
@@ -330,8 +368,8 @@ class module extends ModuleObject
 			$domain->settings = json_encode(array(
 				'title' => $config->siteTitle,
 				'subtitle' => $config->siteSubtitle,
-				'language' => $site_info->default_language,
-				'timezone' => config('locale.default_timezone'),
+				'language' => 'default',
+				'timezone' => 'default',
 				'html_footer' => $config->htmlFooter,
 			));
 			$domains[$domain->domain] = $domain;
@@ -365,8 +403,8 @@ class module extends ModuleObject
 					$domain->settings = json_encode(array(
 						'title' => $config->siteTitle,
 						'subtitle' => $config->siteSubtitle,
-						'language' => $site_info->default_language,
-						'timezone' => config('locale.default_timezone'),
+						'language' => 'default',
+						'timezone' => 'default',
 						'html_footer' => $config->htmlFooter,
 					));
 					$domain->regdate = $site_info->regdate;

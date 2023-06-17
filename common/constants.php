@@ -3,7 +3,7 @@
 /**
  * RX_VERSION is the version number of the Rhymix CMS.
  */
-define('RX_VERSION', '2.0.7');
+define('RX_VERSION', '2.0.22');
 
 /**
  * RX_MICROTIME is the startup time of the current script, in microseconds since the Unix epoch.
@@ -53,7 +53,7 @@ else
  */
 if (isset($_SERVER['HTTP_CF_CONNECTING_IP']))
 {
-	include_once __DIR__ . '/framework/filters/ipfilter.php';
+	include_once __DIR__ . '/framework/filters/IpFilter.php';
 	Rhymix\Framework\Filters\IpFilter::getCloudFlareRealIP();
 }
 if (isset($_SERVER['REMOTE_ADDR']) && preg_match('/[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/', $_SERVER['REMOTE_ADDR'], $matches))
@@ -144,6 +144,7 @@ define('_XE_PATH_', RX_BASEDIR);
  * Status constants for various content types.
  */
 define('RX_STATUS_TEMP', 0);
+define('RX_STATUS_PRIVATE', 10);
 define('RX_STATUS_PUBLIC', 1);
 define('RX_STATUS_SECRET', 2);
 define('RX_STATUS_EMBARGO', 3);

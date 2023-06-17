@@ -15,7 +15,7 @@ class spamfilterController extends spamfilter
 		'login' => '/^(?:disp|proc)MemberLogin(?:Form)?/i',
 		'recovery' => '/^(?:disp|proc)Member(?:FindAccount|ResendAuthMail)/i',
 		'document' => '/^(?:disp|proc)Board(Write|InsertDocument)/i',
-		'comment' => '/^(?:disp|proc)Board(Content|InsertComment)/i',
+		'comment' => '/^(?:disp|proc)Board(Content|InsertComment|ModifyComment|ReplyComment)/i',
 	);
 
 	/**
@@ -123,41 +123,6 @@ class spamfilterController extends spamfilter
 	}
 
 	/**
-	 * @brief Inspect the trackback creation time and IP
-	 */
-	function triggerInsertTrackback(&$obj)
-	{
-		if($_SESSION['avoid_log']) return;
-
-		$oFilterModel = getModel('spamfilter');
-		// Confirm if the trackbacks have been added more than once to your document
-		$output = $oFilterModel->isInsertedTrackback($obj->document_srl);
-		if(!$output->toBool()) return $output;
-
-		// Check if the IP is prohibited
-		$output = $oFilterModel->isDeniedIP();
-		if(!$output->toBool()) return $output;
-		
-		// Check if there is a ban on the word
-		$text = $obj->blog_name . ' ' . $obj->title . ' ' . $obj->excerpt . ' ' . $obj->url;
-		$output = $oFilterModel->isDeniedWord($text);
-		if(!$output->toBool()) return $output;
-		
-		// Start Filtering
-		$oTrackbackController = getController('trackback');
-		if (is_object($oTrackbackController) && method_exists($oTrackbackController, 'deleteTrackbackSender'))
-		{
-			// In case the title and the blog name are indentical, investigate the IP address of the last 6 hours, delete and ban it.
-			if($obj->title == $obj->excerpt)
-			{
-				$oTrackbackController->deleteTrackbackSender(60*60*6, \RX_CLIENT_IP, $obj->url, $obj->blog_name, $obj->title, $obj->excerpt);
-				$this->insertIP(\RX_CLIENT_IP, 'AUTO-DENIED : trackback.insertTrackback');
-				return new BaseObject(-1, 'msg_alert_trackback_denied');
-			}
-		}
-	}
-
-	/**
 	 * @brief IP registration
 	 * The registered IP address is considered as a spammer
 	 */
@@ -216,6 +181,10 @@ class spamfilterController extends spamfilter
 	function triggerSendMessage(&$obj)
 	{
 		if($_SESSION['avoid_log']) return;
+		if(isset($obj->use_spamfilter) && $obj->use_spamfilter === false)
+		{
+			return;
+		}
 
 		$logged_info = Context::get('logged_info');
 		if($logged_info->is_admin == 'Y') return;
@@ -249,7 +218,7 @@ class spamfilterController extends spamfilter
 	function triggerCheckCaptcha(&$obj)
 	{
 		$config = ModuleModel::getModuleConfig('spamfilter');
-		if (!isset($config) || !isset($config->captcha) || $config->captcha->type !== 'recaptcha')
+		if (!isset($config) || !isset($config->captcha) || $config->captcha->type !== 'recaptcha' || !$config->captcha->site_key || !$config->captcha->secret_key)
 		{
 			return;
 		}
@@ -270,19 +239,19 @@ class spamfilterController extends spamfilter
 			return;
 		}
 		
-		$enable = false;
+		$target_actions = [];
 		foreach (['signup', 'login', 'recovery', 'document', 'comment'] as $action)
 		{
 			if ($config->captcha->target_actions[$action])
 			{
-				if (preg_match(self::$_captcha_actions[$action], $obj->act) || ($action === 'comment' && !$obj->act && Context::get('document_srl')))
+				if (preg_match(self::$_captcha_actions[$action], $obj->act) || ($action === 'comment' && (!$obj->act || $obj->act === 'dispBoardContent') && Context::get('document_srl')))
 				{
-					$enable = true;
+					$target_actions[$action] = true;
 				}
 			}
 		}
 		
-		if ($enable)
+		if (count($target_actions))
 		{
 			include_once __DIR__ . '/spamfilter.lib.php';
 			spamfilter_reCAPTCHA::init($config->captcha);
@@ -293,7 +262,10 @@ class spamfilterController extends spamfilter
 			}
 			else
 			{
-				Context::set('captcha', new spamfilter_reCAPTCHA());
+				$captcha = new spamfilter_reCAPTCHA();
+				$captcha->setTargetActions($target_actions);
+				$captcha->addScripts();
+				Context::set('captcha', $captcha);
 			}
 		}
 	}

@@ -155,7 +155,7 @@ class moduleModel extends module
 				$domain_info = $output->data;
 				$domain_info->site_srl = 0;
 				$domain_info->settings = $domain_info->settings ? json_decode($domain_info->settings) : new stdClass;
-				if(!isset($domain_info->settings->color_scheme)) $domain_info->settings->color_scheme = 'off_light';
+				if(!isset($domain_info->settings->color_scheme)) $domain_info->settings->color_scheme = 'auto';
 				$domain_info->default_language = $domain_info->settings->language ?: config('locale.default_lang');
 				Rhymix\Framework\Cache::set('site_and_module:domain_info:domain:' . $domain, $domain_info, 0, true);
 			}
@@ -590,8 +590,12 @@ class moduleModel extends module
 
 	/**
 	 * @brief Return an array of module_srl corresponding to a mid list
+	 * 
+	 * @param int|string|array $mid
+	 * @param bool $assoc
+	 * @return array
 	 */
-	public static function getModuleSrlByMid($mid)
+	public static function getModuleSrlByMid($mid, $assoc = false)
 	{
 		if ($mid && !is_array($mid))
 		{
@@ -614,11 +618,14 @@ class moduleModel extends module
 			self::$_mid_map[$row->mid] = $row->module_srl;
 		}
 
-		return $module_srl_list;
+		return $assoc ? $module_srl_list : array_values($module_srl_list);
 	}
 
 	/**
 	 * @brief Return mid corresponding to a module_srl list
+	 * 
+	 * @param int|array $module_srl
+	 * @return string|array
 	 */
 	public static function getMidByModuleSrl($module_srl)
 	{
@@ -950,8 +957,16 @@ class moduleModel extends module
 	{
 		// Read xml file having skin information
 		if(substr($path,-1)!='/') $path .= '/';
+		if(!preg_match('/^[a-zA-Z0-9_-]+$/', $skin))
+		{
+			return;
+		}
 		$skin_xml_file = sprintf("%s%s/%s/skin.xml", $path, $dir, $skin);
-		if(!file_exists($skin_xml_file)) return;
+		if(!file_exists($skin_xml_file))
+		{
+			return;
+		}
+		
 		// Create XmlParser object
 		$oXmlParser = new XeXmlParser();
 		$_xml_obj = $oXmlParser->loadXmlFile($skin_xml_file);
@@ -1313,13 +1328,10 @@ class moduleModel extends module
 		$args = new stdClass();
 		$args->moduleCategorySrl = $moduleCategorySrl;
 		// Get data from the DB
-		$output = executeQuery('module.getModuleCategories', $args);
+		$output = executeQueryArray('module.getModuleCategories', $args);
 		if(!$output->toBool()) return $output;
-		$list = $output->data;
-		if(!$list) return array();
-		if(!is_array($list)) $list = array($list);
-
-		foreach($list as $val)
+		$category_list = [];
+		foreach($output->data as $val)
 		{
 			$category_list[$val->module_category_srl] = $val;
 		}
@@ -1371,6 +1383,27 @@ class moduleModel extends module
 		return $list;
 	}
 
+	/**
+	 * Get module install class
+	 * 
+	 * This method supports namespaced modules as well as XE-compatible modules.
+	 * 
+	 * @param string $module_name
+	 * @return ModuleObject|null
+	 */
+	public static function getModuleInstallClass(string $module_name)
+	{
+		$class_name = 'Rhymix\\Modules\\' . ucfirst($module_name) . '\\Install';
+		if (class_exists($class_name))
+		{
+			return $class_name::getInstance();
+		}
+		elseif ($oModule = getModule($module_name, 'class'))
+		{
+			return $oModule;
+		}
+	}
+
 	public static function checkNeedInstall($module_name)
 	{
 		$oDB = &DB::getInstance();
@@ -1398,7 +1431,7 @@ class moduleModel extends module
 	public static function checkNeedUpdate($module_name)
 	{
 		// Check if it is upgraded to module.class.php on each module
-		$oDummy = getModule($module_name, 'class');
+		$oDummy = self::getModuleInstallClass($module_name);
 		if($oDummy && method_exists($oDummy, "checkUpdate"))
 		{
 			return $oDummy->checkUpdate();
@@ -1498,7 +1531,7 @@ class moduleModel extends module
 				}
 				
 				// Check if it is upgraded to module.class.php on each module
-				$oDummy = getModule($module_name, 'class');
+				$oDummy = self::getModuleInstallClass($module_name);
 				if($oDummy && method_exists($oDummy, "checkUpdate"))
 				{
 					$info->need_update = $oDummy->checkUpdate();
@@ -1510,7 +1543,7 @@ class moduleModel extends module
 				$forwardable_routes = array();
 				foreach ($module_action_info->action ?? [] as $action_name => $action_info)
 				{
-					if (count($action_info->route) && $action_info->standalone !== 'false')
+					if (count($action_info->route) && $action_info->standalone === 'true')
 					{
 						$forwardable_routes[$action_name] = array(
 							'regexp' => array(),
@@ -1914,9 +1947,9 @@ class moduleModel extends module
 			$module_info->module = $module_info->module_srl = 0;
 		}
 		
-		if (isset($GLOBALS['__MODULE_GRANT__'][$module_info->module][intval($module_info->module_srl ?? 0)][intval($member_info->member_srl)]))
+		if (isset($GLOBALS['__MODULE_GRANT__'][$module_info->module][intval($module_info->module_srl ?? 0)][intval($member_info->member_srl ?? 0)]))
 		{
-			$__cache = &$GLOBALS['__MODULE_GRANT__'][$module_info->module][intval($module_info->module_srl ?? 0)][intval($member_info->member_srl)];
+			$__cache = &$GLOBALS['__MODULE_GRANT__'][$module_info->module][intval($module_info->module_srl ?? 0)][intval($member_info->member_srl ?? 0)];
 			if (is_object($__cache) && !$xml_info)
 			{
 				return $__cache;
@@ -1950,7 +1983,7 @@ class moduleModel extends module
 		foreach($privilege_list as $val)
 		{
 			// If an administrator, grant all
-			if($member_info->is_admin == 'Y')
+			if($member_info && $member_info->is_admin == 'Y')
 			{
 				$grant->{$val} = true;
 			}
@@ -1993,7 +2026,7 @@ class moduleModel extends module
 				}
 				
 				// Log-in member only
-				if($member_info->member_srl)
+				if($member_info && $member_info->member_srl)
 				{
 					if($val->group_srl == -1 || $val->group_srl == -2)
 					{
@@ -2038,7 +2071,7 @@ class moduleModel extends module
 				}
 				
 				// Log-in member only
-				if($member_info->member_srl)
+				if($member_info && $member_info->member_srl)
 				{
 					if($item->default == 'member' || $item->default == 'site')
 					{

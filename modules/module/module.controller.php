@@ -81,6 +81,7 @@ class moduleController extends module
 		$args->called_method = $called_method;
 		$args->called_position = $called_position;
 
+		$output = executeQuery('module.deleteTrigger', $args);
 		$output = executeQuery('module.insertTrigger', $args);
 		if($output->toBool())
 		{
@@ -1064,6 +1065,10 @@ class moduleController extends module
 				throw new Rhymix\Framework\Exception('msg_error_occured');
 			}
 		}
+		if (in_array($ext, ['php', 'js']))
+		{
+			throw new Rhymix\Framework\Exception(sprintf(lang('msg_filebox_invalid_extension'), $ext));
+		}
 
 		$vars->member_srl = $logged_info->member_srl;
 
@@ -1266,7 +1271,7 @@ class moduleController extends module
 		$forwardable_routes = array();
 		foreach ($module_action_info->action ?: [] as $action_name => $action_info)
 		{
-			if (count($action_info->route) && $action_info->standalone !== 'false')
+			if (count($action_info->route) && $action_info->standalone === 'true')
 			{
 				$forwardable_routes[$action_name] = array(
 					'type' => $module_action_info->action->{$action_name}->type,

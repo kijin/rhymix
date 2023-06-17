@@ -3,6 +3,14 @@
 class ncenterliteController extends ncenterlite
 {
 	/**
+	 * List of acts to skip.
+	 */
+	public static $_skip_acts = array(
+		'dispNcenterliteNotifyList' => true,
+		'dispEditorFrame' => true,
+	);
+	
+	/**
 	 * Send any message to a member.
 	 * 
 	 * @param int $from_member_srl Sender
@@ -27,6 +35,7 @@ class ncenterliteController extends ncenterlite
 		$args->target_url = $url;
 		$args->target_browser = '';
 		$args->target_summary = '';
+		$args->target_content = null;
 		
 		if (is_object($message))
 		{
@@ -216,7 +225,7 @@ class ncenterliteController extends ncenterlite
 		// Content type can be document and comment, now. However, the default type cannot be specified, as the type can be another in the future.
 		if($obj->unsubscribe_type == 'document')
 		{
-			$text = cut_str(getModel('document')->getDocument($obj->target_srl)->get('title'), 30);
+			$text = self::_createSummary(getModel('document')->getDocument($obj->target_srl)->get('title'));
 		}
 		elseif($obj->unsubscribe_type == 'comment')
 		{
@@ -274,15 +283,30 @@ class ncenterliteController extends ncenterlite
 				return $output;
 			}
 		}
+
 		$this->setMessage('success_updated');
 
-		if (Context::get('success_return_url'))
+		if(Context::get('is_popup') != 'Y')
 		{
-			$this->setRedirectUrl(Context::get('success_return_url'));
+			if (Context::get('success_return_url'))
+			{
+				$this->setRedirectUrl(Context::get('success_return_url'));
+			}
+			else
+			{
+				$this->setRedirectUrl(getNotEncodedUrl('act', 'dispNcenterliteUnsubscribeList', 'member_srl', $this->user->member_srl));
+			}
 		}
 		else
 		{
-			$this->setRedirectUrl(getNotEncodedUrl('act', 'dispNcenterliteUnsubscribeList', 'member_srl', $this->user->member_srl));
+			if (Context::get('success_return_url'))
+			{
+				$this->setRedirectUrl(Context::get('success_return_url'));
+			}
+			else
+			{
+				$this->setRedirectUrl(getNotEncodedUrl('act', 'dispNcenterliteUnsubscribeList', 'target_srl', $obj->target_srl, 'unsubscribe_type', $obj->unsubscribe_type));
+			}
 		}
 	}
 
@@ -364,7 +388,8 @@ class ncenterliteController extends ncenterlite
 				$args->type = $this->_TYPE_DOCUMENT;
 				$args->target_type = $this->_TYPE_ADMIN_DOCUMENT;
 				$args->target_url = getNotEncodedUrl('', 'mid', $module_info->mid, 'document_srl', $obj->document_srl);
-				$args->target_summary = cut_str(strip_tags($obj->title), 50);
+				$args->target_summary = self::_createSummary($obj->title);
+				$args->target_content = self::_createContent($obj->content) ?: (strpos($obj->content, '<img') !== false ? lang('ncenterlite_content_image') : lang('ncenterlite_content_empty'));
 				$args->regdate = date('YmdHis');
 				$args->target_browser = $module_info->browser_title;
 				$args->module_srl = $obj->module_srl;
@@ -391,8 +416,7 @@ class ncenterliteController extends ncenterlite
 		$module_info = $oModuleModel->getModuleInfoByDocumentSrl($document_srl);
 		$comment_srl = $obj->comment_srl;
 		$parent_srl = $obj->parent_srl;
-		$content = $obj->content;
-		$regdate = $obj->regdate;
+		$content = self::_createSummary($obj->content) ?: (strpos($obj->content, '<img') !== false ? lang('ncenterlite_content_image') : lang('ncenterlite_content_empty'));
 
 		// 익명 노티 체크
 		$is_anonymous = $this->_isAnonymous($this->_TYPE_COMMENT, $obj);
@@ -422,7 +446,8 @@ class ncenterliteController extends ncenterlite
 				$args->type = $this->_TYPE_COMMENT;
 				$args->target_type = $this->_TYPE_COMMENT_ALL;
 				$args->target_url = getNotEncodedUrl('', 'mid', $module_info->mid, 'document_srl', $document_srl, 'comment_srl', $comment_srl) . '#comment_' . $comment_srl;
-				$args->target_summary = cut_str(trim(utf8_normalize_spaces(strip_tags($content))), 50) ?: (strpos($content, '<img') !== false ? lang('ncenterlite_content_image') : lang('ncenterlite_content_empty'));
+				$args->target_summary = $content;
+				$args->target_content = null;
 				$args->target_nick_name = $obj->nick_name;
 				$args->target_email_address = $obj->email_address;
 				$args->regdate = date('YmdHis');
@@ -458,7 +483,8 @@ class ncenterliteController extends ncenterlite
 				$args->type = $this->_TYPE_COMMENT;
 				$args->target_type = $this->_TYPE_ADMIN_COMMENT;
 				$args->target_url = getNotEncodedUrl('', 'mid', $module_info->mid, 'document_srl', $document_srl, 'comment_srl', $comment_srl) . '#comment_' . $comment_srl;
-				$args->target_summary = cut_str(trim(utf8_normalize_spaces(strip_tags($content))), 50) ?: (strpos($content, '<img') !== false ? lang('ncenterlite_content_image') : lang('ncenterlite_content_empty'));
+				$args->target_summary = $content;
+				$args->target_content = null;
 				$args->target_nick_name = $obj->nick_name;
 				$args->target_email_address = $obj->email_address;
 				$args->regdate = date('YmdHis');
@@ -536,10 +562,11 @@ class ncenterliteController extends ncenterlite
 				$args->type = $this->_TYPE_COMMENT;
 				$args->target_type = $this->_TYPE_COMMENT;
 				$args->target_url = getNotEncodedUrl('', 'mid', $module_info->mid, 'document_srl', $document_srl, 'comment_srl', $comment_srl) . '#comment_' . $comment_srl;
-				$args->target_summary = cut_str(trim(utf8_normalize_spaces(strip_tags($content))), 50) ?: (strpos($content, '<img') !== false ? lang('ncenterlite_content_image') : lang('ncenterlite_content_empty'));
+				$args->target_summary = $content;
+				$args->target_content = null;
 				$args->target_nick_name = $obj->nick_name;
 				$args->target_email_address = $obj->email_address;
-				$args->regdate = $regdate;
+				$args->regdate = $obj->regdate;
 				$args->target_browser = $module_info->browser_title;
 				$args->module_srl = $module_info->module_srl;
 				$args->notify = $this->_getNotifyId($args);
@@ -585,10 +612,11 @@ class ncenterliteController extends ncenterlite
 				$args->type = $this->_TYPE_DOCUMENT;
 				$args->target_type = $this->_TYPE_COMMENT;
 				$args->target_url = getNotEncodedUrl('', 'mid', $module_info->mid, 'document_srl', $document_srl, 'comment_srl', $comment_srl) . '#comment_' . $comment_srl;
-				$args->target_summary = cut_str(trim(utf8_normalize_spaces(strip_tags($content))), 50) ?: (strpos($content, '<img') !== false ? lang('ncenterlite_content_image') : lang('ncenterlite_content_empty'));
+				$args->target_summary = $content;
+				$args->target_content = null;
 				$args->target_nick_name = $obj->nick_name;
 				$args->target_email_address = $obj->email_address;
-				$args->regdate = $regdate;
+				$args->regdate = $obj->regdate;
 				$args->target_browser = $module_info->browser_title;
 				$args->module_srl = $module_info->module_srl;
 				$args->notify = $this->_getNotifyId($args);
@@ -603,7 +631,6 @@ class ncenterliteController extends ncenterlite
 
 	function triggerAfterSendMessage($obj)
 	{
-		$oNcenterliteModel = getModel('ncenterlite');
 		$config = NcenterliteModel::getConfig();
 		$communication_config = getModel('communication')->getConfig();
 
@@ -636,6 +663,7 @@ class ncenterliteController extends ncenterlite
 		$args->type = $this->_TYPE_MESSAGE;
 		$args->target_type = $this->_TYPE_MESSAGE;
 		$args->target_summary = $obj->title;
+		$args->target_content = mb_substr(trim(utf8_normalize_spaces(strip_tags($obj->content))), 0, 200, 'UTF-8');
 		$args->regdate = date('YmdHis');
 		$args->notify = $this->_getNotifyId($args);
 		$args->target_url = getNotEncodedUrl('', 'act', 'dispCommunicationMessages', 'message_srl', $obj->related_srl);
@@ -648,7 +676,6 @@ class ncenterliteController extends ncenterlite
 	
 	function triggerAfterScrap($obj)
 	{
-		$oNcenterliteModel = getModel('ncenterlite');
 		$config = NcenterliteModel::getConfig();
 		if(!isset($config->use['scrap']))
 		{
@@ -677,10 +704,11 @@ class ncenterliteController extends ncenterlite
 		$args->type = $this->_TYPE_DOCUMENT;
 		$args->target_type = $this->_TYPE_SCRAPPED;
 		$args->target_summary = $obj->title;
+		$args->target_content = null;
 		$args->regdate = date('YmdHis');
 		$args->notify = $this->_getNotifyId($args);
 		$args->target_url = getNotEncodedUrl('', 'mid', $module_info->mid, 'document_srl', $obj->document_srl);
-		$output = $this->_insertNotify($args);
+		$output = $this->_insertNotify($args, $config->anonymous_scrap !== 'N');
 		if(!$output->toBool())
 		{
 			return $output;
@@ -689,7 +717,6 @@ class ncenterliteController extends ncenterlite
 
 	function triggerAfterDocumentVotedUpdate(&$obj)
 	{
-		$oNcenterliteModel = getModel('ncenterlite');
 		$config = NcenterliteModel::getConfig();
 		if(!isset($config->use['vote']))
 		{
@@ -721,16 +748,16 @@ class ncenterliteController extends ncenterlite
 		$args->type = $this->_TYPE_DOCUMENT;
 		$args->target_type = $this->_TYPE_VOTED;
 		$args->target_summary = $oDocument->get('title');
+		$args->target_content = null;
 		$args->regdate = date('YmdHis');
 		$args->notify = $this->_getNotifyId($args);
 		$args->target_url = getNotEncodedUrl('', 'mid', $module_info->mid, 'document_srl', $obj->document_srl);
 		$args->module_srl = $obj->module_srl;
-		$this->_insertNotify($args);
+		$this->_insertNotify($args, $config->anonymous_voter !== 'N');
 	}
 	
 	function triggerAfterDocumentVotedCancel($obj)
 	{
-		$oNcenterliteModel = getModel('ncenterlite');
 		$config = NcenterliteModel::getConfig();
 		if(empty($config->use))
 		{
@@ -745,11 +772,20 @@ class ncenterliteController extends ncenterlite
 			return;
 		}
 		
+		if($config->anonymous_voter === 'Y')
+		{
+			$member_srl = -1 * $this->user->member_srl;
+		}
+		else
+		{
+			$member_srl = $this->user->member_srl;
+		}
+		
 		$args = new stdClass();
 		$args->type = $this->_TYPE_DOCUMENT;
 		$args->target_type = $this->_TYPE_VOTED;
 		$args->target_srl = $obj->document_srl;
-		$args->target_member_srl = $this->user->member_srl;
+		$args->target_member_srl = $member_srl;
 		$output = executeQuery('ncenterlite.deleteNotifyByTargetType', $args);
 		if($output->toBool())
 		{
@@ -759,7 +795,6 @@ class ncenterliteController extends ncenterlite
 	
 	function triggerAfterCommentVotedCount($obj)
 	{
-		$oNcenterliteModel = getModel('ncenterlite');
 		$config = NcenterliteModel::getConfig();
 		if(!isset($config->use['vote']))
 		{
@@ -793,17 +828,17 @@ class ncenterliteController extends ncenterlite
 		$args->target_srl = $obj->comment_srl;
 		$args->type = $this->_TYPE_COMMENT;
 		$args->target_type = $this->_TYPE_VOTED;
-		$args->target_summary = cut_str(trim(utf8_normalize_spaces(strip_tags($content))), 50);
+		$args->target_summary = self::_createSummary($content) ?: (strpos($content, '<img') !== false ? lang('ncenterlite_content_image') : lang('ncenterlite_content_empty'));
+		$args->target_content = null;
 		$args->regdate = date('YmdHis');
 		$args->module_srl = $obj->module_srl;
 		$args->notify = $this->_getNotifyId($args);
 		$args->target_url = getNotEncodedUrl('', 'mid', $module_info->mid, 'document_srl', $document_srl, 'comment_srl', $obj->comment_srl) . '#comment_' . $obj->comment_srl;
-		$this->_insertNotify($args);
+		$this->_insertNotify($args, $config->anonymous_voter !== 'N');
 	}
 
 	function triggerAfterCommentVotedCancel($obj)
 	{
-		$oNcenterliteModel = getModel('ncenterlite');
 		$config = NcenterliteModel::getConfig();
 		if(empty($config->use))
 		{
@@ -832,14 +867,13 @@ class ncenterliteController extends ncenterlite
 
 	function triggerAfterDeleteComment(&$obj)
 	{
-		$oNcenterliteModel = getModel('ncenterlite');
 		$config = NcenterliteModel::getConfig();
 		if(empty($config->use))
 		{
 			return;
 		}
 
-		$notify_list = $oNcenterliteModel->getNotifyMemberSrlByCommentSrl($obj->comment_srl);
+		$notify_list = ncenterliteModel::getInstance()->getNotifyMemberSrlByCommentSrl($obj->comment_srl);
 
 		// 대댓글의 대댓글일 경우 혹은 중복적으로 받는 경우 comment_srl 당 2개이상 notify가 생성될 수 있다.
 		$member_srls = array();
@@ -865,7 +899,6 @@ class ncenterliteController extends ncenterlite
 
 	function triggerAfterDeleteDocument(&$obj)
 	{
-		$oNcenterliteModel = getModel('ncenterlite');
 		$config = NcenterliteModel::getConfig();
 		if(empty($config->use))
 		{
@@ -883,8 +916,7 @@ class ncenterliteController extends ncenterlite
 
 	function triggerAfterMoveToTrash(&$obj)
 	{
-		$oNcenterliteModel = getModel('ncenterlite');
-		$notify_list = $oNcenterliteModel->getNotifyListByDocumentSrl($obj->document_srl);
+		$notify_list = ncenterliteModel::getInstance()->getNotifyListByDocumentSrl($obj->document_srl);
 
 		$member_srls = array();
 		foreach($notify_list as $value)
@@ -917,8 +949,6 @@ class ncenterliteController extends ncenterlite
 
 	function triggerAfterModuleHandlerProc(&$oModule)
 	{
-		$vars = Context::getRequestVars();
-		$logged_info = Context::get('logged_info');
 		$args = new stdClass();
 
 		if($oModule->getLayoutFile() == 'popup_layout.html')
@@ -926,7 +956,6 @@ class ncenterliteController extends ncenterlite
 			Context::set('ncenterlite_is_popup', TRUE);
 		}
 
-		$oNcenterliteModel = getModel('ncenterlite');
 		$config = NcenterliteModel::getConfig();
 		// if the array is empty, lets return.
 		if(empty($config->use))
@@ -938,7 +967,7 @@ class ncenterliteController extends ncenterlite
 		{
 			$comment_srl = Context::get('comment_srl');
 			$logged_info = Context::get('logged_info');
-			if($comment_srl && $logged_info)
+			if($comment_srl && $logged_info && $logged_info->member_srl)
 			{
 				$args->target_srl = $comment_srl;
 				$args->member_srl = $logged_info->member_srl;
@@ -953,10 +982,9 @@ class ncenterliteController extends ncenterlite
 		elseif(preg_match('/^disp[A-Z][a-z0-9_]+Content$/', $oModule->act))
 		{
 			$document_srl = Context::get('document_srl');
-			$oDocument = Context::get('oDocument');
 			$logged_info = Context::get('logged_info');
 
-			if($document_srl && $config->document_read == 'Y' && $logged_info->member_srl)
+			if($document_srl && $config->document_read == 'Y' && $logged_info && $logged_info->member_srl)
 			{
 				$args->srl = $document_srl;
 				$args->member_srl = $logged_info->member_srl;
@@ -988,30 +1016,23 @@ class ncenterliteController extends ncenterlite
 
 	function triggerBeforeDisplay(&$output_display)
 	{
-		// 팝업창이면 중지
+		// Don't show notification panel in popups, iframes, admin dashboard, etc.
 		if(Context::get('ncenterlite_is_popup'))
 		{
 			return;
 		}
-
-		// 자신의 알림목록을 보고 있을 경우엔 알림센터창을 띄우지 않는다.
-		if(Context::get('act') == 'dispNcenterliteNotifyList')
-		{
-			return;
-		}
-
 		if(Context::isLocked())
 		{
 			return;
 		}
-
-		// HTML 모드가 아니면 중지 + admin 모듈이면 중지
+		if(isset(self::$_skip_acts[Context::get('act')]))
+		{
+			return;
+		}
 		if(Context::getResponseMethod() != 'HTML' || Context::get('module') == 'admin')
 		{
 			return;
 		}
-
-		// 로그인 상태가 아니면 중지
 		if(!Context::get('is_logged'))
 		{
 			return;
@@ -1039,6 +1060,12 @@ class ncenterliteController extends ncenterlite
 			return;
 		}
 		
+		// 레이아웃에서 알림센터 사용중이라면 중지
+		if(Context::get('layout_info')->use_ncenter_widget == 'Y')
+		{
+			return;
+		}
+		
 		Context::set('ncenterlite_config', $config);
 		
 		if($config->highlight_effect === 'Y')
@@ -1056,12 +1083,12 @@ class ncenterliteController extends ncenterlite
 				return;
 			}
 		}
-
+		
 		$_latest_notify_id = array_slice($_output->data, 0, 1);
-		$_latest_notify_id = $_latest_notify_id[0]->notify;
+		$_latest_notify_id = count($_latest_notify_id) > 0 ? $_latest_notify_id[0]->notify : "";
 		Context::set('ncenterlite_latest_notify_id', $_latest_notify_id);
 
-		if($_COOKIE['_ncenterlite_hide_id'] && $_COOKIE['_ncenterlite_hide_id'] == $_latest_notify_id)
+		if(!empty($_COOKIE['_ncenterlite_hide_id']) && $_COOKIE['_ncenterlite_hide_id'] == $_latest_notify_id)
 		{
 			return;
 		}
@@ -1083,10 +1110,20 @@ class ncenterliteController extends ncenterlite
 		if(Mobile::isFromMobilePhone())
 		{
 			$this->template_path = sprintf('%sm.skins/%s/', $this->module_path, $config->mskin);
-			if(!is_dir($this->template_path) || !$config->mskin)
+			if(!$config->mskin)
 			{
 				$config->mskin = 'default';
 				$this->template_path = sprintf('%sm.skins/%s/', $this->module_path, $config->mskin);
+			}
+			// If use to same PC skin set.
+			else if ($config->mskin === '/USE_RESPONSIVE/')
+			{
+				$this->template_path = sprintf('%sskins/%s/', $this->module_path, $config->skin);
+				if(!$config->skin)
+				{
+					$config->skin = 'default';
+					$this->template_path = sprintf('%sskins/%s/', $this->module_path, $config->skin);
+				}
 			}
 		}
 		else
@@ -1099,14 +1136,18 @@ class ncenterliteController extends ncenterlite
 			}
 		}
 
+		if($config->zindex)
+		{
+			Context::set('ncenterlite_zindex', ' style="z-index:' . $config->zindex . ';" ');
+		}
+		
+		$result = TemplateHandler::getInstance()->compile($this->template_path, 'ncenterlite.html');
 		$this->_addFile();
-		$html = $this->_getTemplate();
-		$output_display = $html . $output_display;
+		$output_display = $result . $output_display;
 	}
 
 	function triggerAddMemberMenu()
 	{
-		$oNcenterliteModel = getModel('ncenterlite');
 		$oMemberController = getController('member');
 
 		$config = NcenterliteModel::getConfig();
@@ -1147,16 +1188,9 @@ class ncenterliteController extends ncenterlite
 			Context::loadFile(array($this->template_path . 'ncenterlite.css', '', '', 100));
 		}
 
-		$oNcenterliteModel = getModel('ncenterlite');
 		$config = NcenterliteModel::getConfig();
-		if(!Mobile::isFromMobilePhone())
-		{
-			if($config->colorset && file_exists(FileHandler::getRealPath($this->template_path . 'ncenterlite.' . $config->colorset . '.css')))
-			{
-				Context::loadFile(array($this->template_path . 'ncenterlite.' . $config->colorset . '.css', '', '', 100));
-			}
-		}
-		elseif(Mobile::isFromMobilePhone())
+
+		if(Mobile::isFromMobilePhone() && $config->mskin !== '/USE_RESPONSIVE/')
 		{
 			if($config->mcolorset && file_exists(FileHandler::getRealPath($this->template_path . 'ncenterlite.' . $config->mcolorset . '.css')))
 			{
@@ -1167,30 +1201,13 @@ class ncenterliteController extends ncenterlite
 			Context::loadFile(array('./common/js/xe.min.js', 'head', '', -100000));
 			Context::loadFile(array($this->template_path . 'ncenterlite.mobile.css', '', '', 100));
 		}
-		if($config->zindex)
-		{
-			Context::set('ncenterlite_zindex', ' style="z-index:' . $config->zindex . ';" ');
-		}
-	}
-
-	function _getTemplate()
-	{
-		$oNcenterModel = getModel('ncenterlite');
-		$config = $oNcenterModel->getConfig();
-
-		$oTemplateHandler = TemplateHandler::getInstance();
-
-		if(Mobile::isFromMobilePhone())
-		{
-			$path = sprintf('%sm.skins/%s/', $this->module_path, $config->mskin);
-		}
 		else
 		{
-			$path = sprintf('%sskins/%s/', $this->module_path, $config->skin);
+			if($config->colorset && file_exists(FileHandler::getRealPath($this->template_path . 'ncenterlite.' . $config->colorset . '.css')))
+			{
+				Context::loadFile(array($this->template_path . 'ncenterlite.' . $config->colorset . '.css', '', '', 100));
+			}
 		}
-		$result = $oTemplateHandler->compile($path, 'ncenterlite.html');
-
-		return $result;
 	}
 
 	function updateNotifyRead($notify, $member_srl)
@@ -1314,7 +1331,7 @@ class ncenterliteController extends ncenterlite
 
 	function _insertNotify($args, $anonymous = FALSE)
 	{
-		$config = getModel('ncenterlite')->getConfig();
+		$config = NcenterliteModel::getConfig();
 		
 		if(is_array($config->hide_module_srls) && in_array($args->module_srl, $config->hide_module_srls))
 		{
@@ -1342,10 +1359,10 @@ class ncenterliteController extends ncenterlite
 		// 익명인 경우 발신자 정보를 제거
 		if($anonymous == TRUE)
 		{
-			$args->target_member_srl = 0;
+			$args->target_member_srl = -1 * $this->user->member_srl;
 			$args->target_nick_name = strval($args->target_nick_name);
-			$args->target_user_id = strval($args->target_nick_name);
-			$args->target_email_address = strval($args->target_nick_name);
+			$args->target_user_id = $args->target_nick_name;
+			$args->target_email_address = $args->target_nick_name;
 		}
 		// 발신자 회원번호(target_member_srl)가 지정된 경우 그대로 사용
 		elseif($args->target_member_srl)
@@ -1394,8 +1411,11 @@ class ncenterliteController extends ncenterlite
 		if($output->toBool())
 		{
 			ModuleHandler::triggerCall('ncenterlite._insertNotify', 'after', $args);
-			$this->sendPushMessage($args);
-			$this->sendSmsMessage($args);
+			$push_success = $this->sendPushMessage($args);
+			if (!$push_success || !isset($config->push_before_sms) || $config->push_before_sms !== 'Y')
+			{
+				$this->sendSmsMessage($args);
+			}
 			$this->sendMailMessage($args);
 			$this->removeFlagFile($args->member_srl);
 		}
@@ -1457,7 +1477,6 @@ class ncenterliteController extends ncenterlite
 	 **/
 	function _getMentionTarget($content)
 	{
-		$oNcenterliteModel = getModel('ncenterlite');
 		$oMemberModel =  getModel('member');
 		$config = NcenterliteModel::getConfig();
 		$logged_info = Context::get('logged_info');
@@ -1561,13 +1580,33 @@ class ncenterliteController extends ncenterlite
 			$target_url = Rhymix\Framework\URL::getCurrentDomainUrl($target_url);
 		}
 
+		if (!isset($args->extra_data) || !$args->extra_data)
+		{
+			$args->extra_data = [];
+			$args->extra_data['sender'] = strval($args->target_nick_name);
+			$args->extra_data['profile_image'] = '';
+			if ($args->target_member_srl > 0)
+			{
+				$profile_image = MemberModel::getProfileImage($args->target_member_srl);
+				if ($profile_image && $profile_image->src)
+				{
+					$args->extra_data['profile_image'] = Rhymix\Framework\URL::getCurrentDomainUrl($profile_image->src);
+				}
+			}
+			$args->extra_data['type'] = strval($args->target_type);
+			$args->extra_data['subject'] = strval($args->target_summary);
+			$args->extra_data['content'] = isset($args->target_content) ? mb_substr($args->target_content, 0, 200, 'UTF-8') : '';
+		}
+
 		$oPush = new \Rhymix\Framework\Push();
 		$oPush->setSubject($content);
 		$oPush->setContent(strval($args->extra_content));
-		$oPush->setData($args->extra_data ?: []);
+		$oPush->setData($args->extra_data);
 		$oPush->setURL(strval($target_url));
 		$oPush->addTo(intval($args->member_srl));
-		$oPush->send();
+		$output = $oPush->send();
+		
+		return $output;
 	}
 	
 	function sendSmsMessage($args)
@@ -1691,21 +1730,20 @@ class ncenterliteController extends ncenterlite
 	 * @param $module_info
 	 * @param $is_anonymous
 	 * @param string $type
-	 * @return Object|Bool|array
+	 * @return array
 	 */
 	function insertMentionByTargets($mention_targets, $obj, $module_info, $is_anonymous, $type = 'D')
 	{
-		$oNcenterliteModel = getModel('ncenterlite');
 		$config = NcenterliteModel::getConfig();
 
 		if(!is_array($mention_targets))
 		{
-			return false;
+			return array();
 		}
 
 		if(!$module_info)
 		{
-			return false;
+			return array();
 		}
 
 		$notify_member_srls = array();
@@ -1726,7 +1764,7 @@ class ncenterliteController extends ncenterlite
 				$args->srl = $obj->document_srl;
 				$args->target_p_srl = $obj->document_srl;
 				$args->target_srl = $obj->document_srl;
-				$args->target_summary = cut_str(strip_tags($obj->title), 50);
+				$args->target_summary = self::_createSummary($obj->title);
 				$args->target_url = getNotEncodedUrl('', 'mid', $module_info->mid, 'document_srl', $obj->document_srl);
 			}
 			elseif ($type == $this->_TYPE_COMMENT)
@@ -1743,7 +1781,7 @@ class ncenterliteController extends ncenterlite
 				$args->target_p_srl = $obj->comment_srl;
 				$args->target_srl = $obj->comment_srl;
 				$args->target_url = getNotEncodedUrl('', 'mid', $module_info->mid, 'document_srl', $obj->document_srl, 'comment_srl', $obj->comment_srl) . '#comment_' . $obj->comment_srl;
-				$args->target_summary = cut_str(trim(utf8_normalize_spaces(strip_tags($obj->content))), 50) ?: (strpos($obj->content, '<img') !== false ? lang('ncenterlite_content_image') : lang('ncenterlite_content_empty'));
+				$args->target_summary = self::_createSummary($obj->content) ?: (strpos($obj->content, '<img') !== false ? lang('ncenterlite_content_image') : lang('ncenterlite_content_empty'));
 			}
 			$args->config_type = 'mention';
 			$args->member_srl = $mention_member_srl;
@@ -1757,7 +1795,8 @@ class ncenterliteController extends ncenterlite
 			$output = $this->_insertNotify($args, $is_anonymous);
 			if(!$output->toBool())
 			{
-				return $output;
+				// 실패시 지금까지 성공한 데이터를 리턴
+				return $notify_member_srls;
 			}
 			$notify_member_srls[] = $mention_member_srl;
 		}
@@ -1777,8 +1816,6 @@ class ncenterliteController extends ncenterlite
 
 		$document_srl = Context::get('target_srl');
 
-		/** @var ncenterliteModel $oNcenterliteModel */
-		$oNcenterliteModel = getModel('ncenterlite');
 		$config = NcenterliteModel::getConfig();
 		
 		if($config->unsubscribe !== 'Y') return;
@@ -1801,8 +1838,6 @@ class ncenterliteController extends ncenterlite
 
 		$comment_srl = Context::get('target_srl');
 
-		/** @var ncenterliteModel $oNcenterliteModel */
-		$oNcenterliteModel = getModel('ncenterlite');
 		$config = NcenterliteModel::getConfig();
 		
 		if($config->unsubscribe !== 'Y') return;
@@ -1811,5 +1846,42 @@ class ncenterliteController extends ncenterlite
 		$url = getUrl('','module','ncenterlite','act','dispNcenterliteInsertUnsubscribe', 'target_srl', $comment_srl, 'unsubscribe_type', 'comment');
 		$oCommentController->addCommentPopupMenu($url,'ncenterlite_cmd_unsubscribe_settings','','popup');
 	}
-
+	
+	/**
+	 * Cut a string to fit the notification summary column.
+	 * 
+	 * @param string $str
+	 * @return string
+	 */
+	protected static function _createSummary($str): string
+	{
+		$str = escape(utf8_normalize_spaces(trim(strip_tags($str)), false));
+		if (function_exists('mb_strimwidth'))
+		{
+			return mb_strimwidth($str, 0, 50, '...', 'UTF-8');
+		}
+		else
+		{
+			return cut_str($str, 45);
+		}
+	}
+	
+	/**
+	 * Cut a string to fit the notification content column.
+	 * 
+	 * @param string $str
+	 * @return string
+	 */
+	protected static function _createContent($str): string
+	{
+		$str = escape(utf8_normalize_spaces(trim(strip_tags($str)), false));
+		if (function_exists('mb_strimwidth'))
+		{
+			return mb_strimwidth($str, 0, 200, '...', 'UTF-8');
+		}
+		else
+		{
+			return cut_str($str, 195);
+		}
+	}
 }

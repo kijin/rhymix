@@ -18,7 +18,7 @@ class MailTest extends \Codeception\TestCase\Test
 		$this->assertTrue(isset($drivers['dummy']));
 		$this->assertTrue(isset($drivers['mailfunction']));
 		$this->assertTrue(isset($drivers['smtp']));
-		$this->assertEquals('SMTP', $drivers['smtp']['name']);
+		$this->assertEquals('Smtp', $drivers['smtp']['name']);
 		$this->assertEquals(array('api_token'), $drivers['sparkpost']['required']);
 		$this->assertNotEmpty($drivers['woorimail']['spf_hint']);
 	}
@@ -83,6 +83,7 @@ class MailTest extends \Codeception\TestCase\Test
 	
 	public function testMailBody()
 	{
+		$baseurl = '/' . basename(dirname(dirname(dirname(__DIR__)))) . '/';
 		$mail = new Rhymix\Framework\Mail;
 		
 		$mail->setBody('<p>Hello world!</p>', 'text/html');
@@ -96,6 +97,15 @@ class MailTest extends \Codeception\TestCase\Test
 		$mail->setBody('<p>Hello foobar...</p>', 'invalid value');
 		$this->assertEquals('<p>Hello foobar...</p>', $mail->getContent());
 		$this->assertEquals('text/plain', $mail->getContentType());
+		
+		$mail->setBody('<p><img src="files/attach/foobar.jpg" alt="TEST" /></p>', 'text/html');
+		$this->assertEquals('<p><img src="https://www.rhymix.org' . $baseurl . 'files/attach/foobar.jpg" alt="TEST" /></p>', $mail->getBody());
+		$mail->setBody('<p><img src="./files/attach/foobar.jpg" alt="TEST" /></p>', 'text/html');
+		$this->assertEquals('<p><img src="https://www.rhymix.org' . $baseurl . 'files/attach/foobar.jpg" alt="TEST" /></p>', $mail->getBody());
+		$mail->setBody('<p><img src="' . $baseurl . 'files/attach/foobar.jpg" alt="TEST" /></p>', 'text/html');
+		$this->assertEquals('<p><img src="https://www.rhymix.org' . $baseurl . 'files/attach/foobar.jpg" alt="TEST" /></p>', $mail->getBody());
+		$mail->setBody('<p><img src="./files/attach/foobar.jpg" alt="TEST" /></p>', 'text/plain');
+		$this->assertEquals('<p><img src="./files/attach/foobar.jpg" alt="TEST" /></p>', $mail->getBody());
 		
 		$mail->setContentType('html');
 		$this->assertEquals('text/html', $mail->getContentType());

@@ -16,6 +16,7 @@ class TemplateHandler
 	private $file = NULL; ///< target file (fullpath)
 	private $web_path = NULL; ///< tpl file web path
 	private $compiled_file = NULL; ///< tpl file web path
+	private $source_type = NULL;
 	private $config = NULL;
 	private $skipTags = NULL;
 	private $handler_mtime = 0;
@@ -35,7 +36,7 @@ class TemplateHandler
 		ini_set('pcre.jit', false);
 		$this->config = new stdClass;
 		$this->handler_mtime = filemtime(__FILE__);
-		$this->user = Rhymix\Framework\Session::getMemberInfo() ?: new Rhymix\Framework\Helpers\SessionHelper;
+		$this->user = Rhymix\Framework\Session::getMemberInfo();
 	}
 
 	/**
@@ -64,6 +65,24 @@ class TemplateHandler
 	}
 
 	/**
+	 * Reset all instance properties to the default state.
+	 * 
+	 * @return void
+	 */
+	protected function resetState()
+	{
+		$this->path = null;
+		$this->web_path = null;
+		$this->filename = null;
+		$this->file = null;
+		$this->compiled_file = null;
+		$this->source_type = null;
+		$this->config = new stdClass;
+		$this->skipTags = null;
+		self::$rootTpl = null;
+	}
+
+	/**
 	 * set variables for template compile
 	 * @param string $tpl_path
 	 * @param string $tpl_filename
@@ -74,10 +93,17 @@ class TemplateHandler
 	{
 		// verify arguments
 		$tpl_path = trim(preg_replace('@^' . preg_quote(\RX_BASEDIR, '@') . '|\./@', '', str_replace('\\', '/', $tpl_path)), '/') . '/';
-		if($tpl_path === '/' || !is_dir($tpl_path))
+		$tpl_path = preg_replace('/[\{\}\(\)\[\]<>\$\'"]/', '', $tpl_path);
+		if($tpl_path === '/')
 		{
+			$tpl_path = '';
+		}
+		elseif(!is_dir(\RX_BASEDIR . $tpl_path))
+		{
+			$this->resetState();
 			return;
 		}
+
 		if(!file_exists(\RX_BASEDIR . $tpl_path . $tpl_filename) && file_exists(\RX_BASEDIR . $tpl_path . $tpl_filename . '.html'))
 		{
 			$tpl_filename .= '.html';
@@ -102,6 +128,7 @@ class TemplateHandler
 		// set compiled file name
 		$converted_path = ltrim(str_replace(array('\\', '..'), array('/', 'dotdot'), $tpl_file), '/');
 		$this->compiled_file = \RX_BASEDIR . 'files/cache/template/' . $converted_path . '.php';
+		$this->source_type = preg_match('!^((?:m\.)?[a-z]+)/!', $tpl_path, $matches) ? $matches[1] : null;
 	}
 
 	/**
@@ -122,8 +149,12 @@ class TemplateHandler
 		// if target file does not exist exit
 		if(!$this->file || !file_exists($this->file))
 		{
-			$tpl_path = str_replace('\\', '/', $tpl_path);
-			$error_message = "Template not found: ${tpl_path}${tpl_filename}" . ($tpl_file ? " (${tpl_file})" : '');
+			$tpl_path = rtrim(str_replace('\\', '/', $tpl_path), '/') . '/';
+			$error_message = vsprintf('Template not found: %s%s%s', array(
+				$tpl_path,
+				preg_replace('/\.html$/i', '', $tpl_filename) . '.html',
+				$tpl_file ? " (${tpl_file})" : '',
+			));
 			trigger_error($error_message, \E_USER_WARNING);
 			return escape($error_message);
 		}
@@ -145,7 +176,9 @@ class TemplateHandler
 				$tmpfilename = tempnam(sys_get_temp_dir(), 'rx-compiled');
 				if($tmpfilename === false || Rhymix\Framework\Storage::write($tmpfilename, $buff) === false)
 				{
-					return 'Fatal Error : Cannot create temporary file. Please check permissions.';
+					$error_message = 'Template compile failed: Cannot create temporary file. Please check permissions.';
+					trigger_error($error_message, \E_USER_WARNING);
+					return escape($error_message);
 				}
 				
 				$this->compiled_file = $tmpfilename;
@@ -189,8 +222,11 @@ class TemplateHandler
 		// if target file does not exist exit
 		if(!$this->file || !file_exists($this->file))
 		{
-			$tpl_path = str_replace('\\', '/', $tpl_path);
-			$error_message = "Template not found: ${tpl_path}${tpl_filename}";
+			$tpl_path = rtrim(str_replace('\\', '/', $tpl_path), '/') . '/';
+			$error_message = vsprintf('Template not found: %s%s', array(
+				$tpl_path,
+				preg_replace('/\.html$/i', '', $tpl_filename) . '.html',
+			));
 			trigger_error($error_message, \E_USER_WARNING);
 			return escape($error_message);
 		}
@@ -233,7 +269,7 @@ class TemplateHandler
 		$buff = preg_replace('@<!--//.*?-->@s', '', $buff);
 
 		// replace value of src in img/input/script tag
-		$buff = preg_replace_callback('/<(?:img|input|script)(?:[^<>]*?)(?(?=cond=")(?:cond="[^"]+"[^<>]*)+|)[^<>]* src="(?!(?:https?|file):\/\/|[\/\{])([^"]+)"/is', array($this, '_replacePath'), $buff);
+		$buff = preg_replace_callback('/<(?:img|input|script)(?:[^<>]*?)(?(?=cond=")(?:cond="[^"]+"[^<>]*)+|)[^<>]* src="(?!(?:https?|file|data):|[\/\{])([^"]+)"/is', array($this, '_replacePath'), $buff);
 
 		// replace value of srcset in img/source/link tag
 		$buff = preg_replace_callback('/<(?:img|source|link)(?:[^<>]*?)(?(?=cond=")(?:cond="[^"]+"[^<>]*)+|)[^<>]* srcset="([^"]+)"/is', array($this, '_replaceSrcsetPath'), $buff);
@@ -277,8 +313,19 @@ class TemplateHandler
 	 */
 	private function _compileFormAuthGeneration($matches)
 	{
+		// check rx-autoform attribute
+		if (preg_match('/\srx-autoform="([^">]*?)"/', $matches[1], $m1))
+		{
+			$autoform = toBool($m1[1]);
+			$matches[1] = preg_replace('/\srx-autoform="([^">]*?)"/', '', $matches[1]);
+		}
+		else
+		{
+			$autoform = true;
+		}
+		
 		// form ruleset attribute move to hidden tag
-		if($matches[1])
+		if ($autoform && $matches[1])
 		{
 			preg_match('/ruleset="([^"]*?)"/is', $matches[1], $m);
 			if(isset($m[0]) && $m[0])
@@ -318,33 +365,40 @@ class TemplateHandler
 		}
 
 		// if not exists default hidden tag, generate hidden tag
-		preg_match_all('/<input[^>]* name="(act|mid)"/is', $matches[2], $m2);
-		$checkVar = array('act', 'mid');
-		$resultArray = array_diff($checkVar, $m2[1]);
-		if(is_array($resultArray))
+		if ($autoform)
 		{
-			$generatedHidden = '';
-			foreach($resultArray AS $key => $value)
+			preg_match_all('/<input[^>]* name="(act|mid)"/is', $matches[2], $m2);
+			$missing_inputs = array_diff(['act', 'mid'], $m2[1]);
+			if(is_array($missing_inputs))
 			{
-				$generatedHidden .= '<input type="hidden" name="' . $value . '" value="<?php echo $__Context->' . $value . ' ?? \'\'; ?>" />';
+				$generatedHidden = '';
+				foreach($missing_inputs as $key)
+				{
+					$generatedHidden .= '<input type="hidden" name="' . $key . '" value="<?php echo $__Context->' . $key . ' ?? \'\'; ?>" />';
+				}
+				$matches[2] = $generatedHidden . $matches[2];
 			}
-			$matches[2] = $generatedHidden . $matches[2];
 		}
 
 		// return url generate
-		if(!preg_match('/no-error-return-url="true"/i', $matches[1]))
+		if ($autoform)
 		{
-			preg_match('/<input[^>]*name="error_return_url"[^>]*>/is', $matches[2], $m3);
-			if(!isset($m3[0]) || !$m3[0])
-				$matches[2] = '<input type="hidden" name="error_return_url" value="<?php echo escape(getRequestUriByServerEnviroment(), false); ?>" />' . $matches[2];
+			if (!preg_match('/no-(?:error-)?return-url="true"/i', $matches[1]))
+			{
+				preg_match('/<input[^>]*name="error_return_url"[^>]*>/is', $matches[2], $m3);
+				if(!isset($m3[0]) || !$m3[0])
+				{
+					$matches[2] = '<input type="hidden" name="error_return_url" value="<?php echo escape(getRequestUriByServerEnviroment(), false); ?>" />' . $matches[2];
+				}
+			}
+			else
+			{
+				$matches[1] = preg_replace('/no-(?:error-)?return-url="true"/i', '', $matches[1]);
+			}
 		}
-		else
-		{
-			$matches[1] = preg_replace('/no-error-return-url="true"/i', '', $matches[1]);
-		}
-
-		$matches[0] = '';
-		return implode($matches);
+		
+		array_shift($matches);
+		return implode('', $matches);
 	}
 
 	/**
@@ -449,7 +503,7 @@ class TemplateHandler
 		foreach ($url_list as &$url) {
 			// replace if url is not starting with the pattern
 			$url = preg_replace_callback(
-				'/^(?!(?:https?|file):\/\/|[\/\{])(\S+)/i',
+				'/^(?!(?:https?|file|data):|[\/\{])(\S+)/i',
 				array($this, '_replaceRelativePath'),
 				trim($url)
 			);
@@ -513,7 +567,7 @@ class TemplateHandler
 								{
 									$expr_m[2] .= '=>' . trim($expr_m[3]);
 								}
-								$nodes[$idx - 1] .= sprintf('<?php if(%1$s)foreach(%1$s as %2$s){ ?>', $expr_m[1], $expr_m[2]);
+								$nodes[$idx - 1] .= sprintf('<?php $__loop_tmp=%1$s;if($__loop_tmp)foreach($__loop_tmp as %2$s){ ?>', $expr_m[1], $expr_m[2]);
 							}
 							elseif(isset($expr_m[4]) && $expr_m[4])
 							{
@@ -587,7 +641,7 @@ class TemplateHandler
 		// {@ ... } or {$var} or {func(...)}
 		if($m[1])
 		{
-			if(preg_match('@^(\w+)\(@', $m[1], $mm) && !function_exists($mm[1]))
+			if(preg_match('@^(\w+)\(@', $m[1], $mm) && (!function_exists($mm[1]) && !in_array($mm[1], ['isset', 'unset', 'empty'])))
 			{
 				return $m[0];
 			}
@@ -853,7 +907,7 @@ class TemplateHandler
 							{
 								$metafile = isset($attr['target']) ? $attr['target'] : '';
 								$result = vsprintf("Context::loadFile(['%s', '%s', '%s', '%s']);", [
-									$attr['target'] ?? '', $attr['type'] ?? '', $attr['targetie'] ?? '', $attr['index'] ?? '',
+									$attr['target'] ?? '', $attr['type'] ?? '', $attr['targetie'] ?? ($isRemote ? $this->source_type : ''), $attr['index'] ?? '',
 								]);
 							}
 							break;
@@ -871,7 +925,7 @@ class TemplateHandler
 								$metafile = isset($attr['target']) ? $attr['target'] : '';
 								$metavars = isset($attr['vars']) ? ($attr['vars'] ? self::_replaceVar($attr['vars']) : '') : '';
 								$result = vsprintf("Context::loadFile(['%s', '%s', '%s', '%s', %s]);", [
-									$attr['target'] ?? '', $attr['media'] ?? '', $attr['targetie'] ?? '', $attr['index'] ?? '',
+									$attr['target'] ?? '', $attr['media'] ?? '', $attr['targetie'] ?? ($isRemote ? $this->source_type : ''), $attr['index'] ?? '',
 									isset($attr['vars']) ? ($attr['vars'] ? self::_replaceVar($attr['vars']) : '[]') : '[]',
 								]);
 							}
