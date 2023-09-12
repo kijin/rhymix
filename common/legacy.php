@@ -9,10 +9,10 @@
 /**
  * Define a function to use {@see ModuleHandler::getModuleObject()} ($module_name, $type)
  *
- * @param string $module_name The module name to get a instance
- * @param string $type disp, proc, controller, class
+ * @param string $module_name
+ * @param string $type model, controller, view, class, etc.
  * @param string $kind admin, null
- * @return mixed Module instance
+ * @return ?ModuleObject
  */
 function getModule($module_name, $type = 'view', $kind = ''): ?ModuleObject
 {
@@ -22,8 +22,8 @@ function getModule($module_name, $type = 'view', $kind = ''): ?ModuleObject
 /**
  * Create a controller instance of the module
  *
- * @param string $module_name The module name to get a controller instance
- * @return mixed Module controller instance
+ * @param string $module_name
+ * @return ?ModuleObject
  */
 function getController($module_name): ?ModuleObject
 {
@@ -33,8 +33,8 @@ function getController($module_name): ?ModuleObject
 /**
  * Create a admin controller instance of the module
  *
- * @param string $module_name The module name to get a admin controller instance
- * @return mixed Module admin controller instance
+ * @param string $module_name
+ * @return ?ModuleObject
  */
 function getAdminController($module_name): ?ModuleObject
 {
@@ -44,8 +44,8 @@ function getAdminController($module_name): ?ModuleObject
 /**
  * Create a view instance of the module
  *
- * @param string $module_name The module name to get a view instance
- * @return mixed Module view instance
+ * @param string $module_name
+ * @return ?ModuleObject
  */
 function getView($module_name): ?ModuleObject
 {
@@ -55,8 +55,8 @@ function getView($module_name): ?ModuleObject
 /**
  * Create a admin view instance of the module
  *
- * @param string $module_name The module name to get a admin view instance
- * @return mixed Module admin view instance
+ * @param string $module_name
+ * @return ?ModuleObject
  */
 function getAdminView($module_name): ?ModuleObject
 {
@@ -66,8 +66,8 @@ function getAdminView($module_name): ?ModuleObject
 /**
  * Create a model instance of the module
  *
- * @param string $module_name The module name to get a model instance
- * @return mixed Module model instance
+ * @param string $module_name
+ * @return ?ModuleObject
  */
 function getModel($module_name): ?ModuleObject
 {
@@ -77,8 +77,8 @@ function getModel($module_name): ?ModuleObject
 /**
  * Create an admin model instance of the module
  *
- * @param string $module_name The module name to get a admin model instance
- * @return mixed Module admin model instance
+ * @param string $module_name
+ * @return ?ModuleObject
  */
 function getAdminModel($module_name): ?ModuleObject
 {
@@ -88,8 +88,8 @@ function getAdminModel($module_name): ?ModuleObject
 /**
  * Create an api instance of the module
  *
- * @param string $module_name The module name to get a api instance
- * @return mixed Module api class instance
+ * @param string $module_name
+ * @return ?ModuleObject
  */
 function getAPI($module_name): ?ModuleObject
 {
@@ -99,8 +99,8 @@ function getAPI($module_name): ?ModuleObject
 /**
  * Create a mobile instance of the module
  *
- * @param string $module_name The module name to get a mobile instance
- * @return mixed Module mobile instance
+ * @param string $module_name
+ * @return ?ModuleObject
  */
 function getMobile($module_name): ?ModuleObject
 {
@@ -111,6 +111,8 @@ function getMobile($module_name): ?ModuleObject
  * Create a wap instance of the module
  *
  * @deprecated
+ * @param string $module_name
+ * @return ?ModuleObject
  */
 function getWAP($module_name): ?ModuleObject
 {
@@ -120,8 +122,8 @@ function getWAP($module_name): ?ModuleObject
 /**
  * Create a class instance of the module
  *
- * @param string $module_name The module name to get a class instance
- * @return mixed Module class instance
+ * @param string $module_name
+ * @return ?ModuleObject
  */
 function getClass($module_name): ?ModuleObject
 {
