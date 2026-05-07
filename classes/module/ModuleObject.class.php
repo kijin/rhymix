@@ -805,6 +805,10 @@ class ModuleObject extends BaseObject
 		{
 			$this->setError($triggerOutput->getError());
 			$this->setMessage($triggerOutput->getMessage());
+			if ($triggerOutput->get('rx_error_location'))
+			{
+				$this->add('rx_error_location', $triggerOutput->get('rx_error_location'));
+			}
 			return FALSE;
 		}
 
@@ -846,6 +850,10 @@ class ModuleObject extends BaseObject
 			{
 				$this->setError($triggerOutput->getError());
 				$this->setMessage($triggerOutput->getMessage());
+				if ($triggerOutput->get('rx_error_location'))
+				{
+					$this->add('rx_error_location', $triggerOutput->get('rx_error_location'));
+				}
 				return false;
 			}
 

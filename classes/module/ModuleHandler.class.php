@@ -1355,6 +1355,7 @@ class ModuleHandler extends Handler
 			catch (Rhymix\Framework\Exception $e)
 			{
 				$output = new BaseObject(-2, $e->getMessage());
+				$output->add('rx_error_location', $e->getUserFileAndLine());
 			}
 
 			if ($trigger_name !== 'common.flushDebugInfo')
@@ -1391,6 +1392,7 @@ class ModuleHandler extends Handler
 			catch (Rhymix\Framework\Exception $e)
 			{
 				$output = new BaseObject(-2, $e->getMessage());
+				$output->add('rx_error_location', $e->getUserFileAndLine());
 			}
 
 			if ($trigger_name !== 'common.writeSlowlog')
