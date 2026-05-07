@@ -44,7 +44,7 @@ class ModuleAdminView extends Module
 				// get easyinstall need update
 				$packageSrl = $oAutoinstallModel->getPackageSrlByPath($val->path);
 				$package = $oAutoinstallModel->getInstalledPackages($packageSrl);
-				$module_list[$key]->need_autoinstall_update = $package[$packageSrl]->need_update;
+				$module_list[$key]->need_autoinstall_update = $package[$packageSrl]->need_update ?? null;
 
 				// get easyinstall update url
 				if($module_list[$key]->need_autoinstall_update == 'Y')
