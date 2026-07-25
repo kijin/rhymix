@@ -21,9 +21,9 @@ class ModuleInstance extends ModuleInfo
 	public int $layout_srl = 0;
 	public int $mlayout_srl = 0;
 	public string $use_mobile = 'N';
-	public string $skin = '';
+	public ?string $skin = null;
 	public string $is_skin_fix = 'Y';
-	public string $mskin = '';
+	public ?string $mskin = null;
 	public string $is_mskin_fix = 'Y';
 	public string $browser_title = '';
 	public string $is_default = 'N';
