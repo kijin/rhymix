@@ -29,7 +29,7 @@ class DB
 	/**
 	 * Information about the last executed statement.
 	 */
-	protected $_last_stmt;
+	protected $_last_stmt = null;
 
 	/**
 	 * Elapsed time.
@@ -185,9 +185,9 @@ class DB
 	 *
 	 * @param string $statement
 	 * @param array $driver_options
-	 * @return Helpers\DBStmtHelper
+	 * @return ?Helpers\DBStmtHelper
 	 */
-	public function prepare(string $statement, array $driver_options = []): Helpers\DBStmtHelper
+	public function prepare(string $statement, array $driver_options = []): ?Helpers\DBStmtHelper
 	{
 		// Add table prefixes to the query string.
 		$statement = $this->addPrefixes($statement);
@@ -199,9 +199,8 @@ class DB
 		}
 
 		// Create and return a prepared statement.
-		$this->_last_stmt = null;
-		$this->_last_stmt = $this->_handle->prepare($statement, $driver_options);
-		return $this->_last_stmt;
+		$stmt = $this->_handle->prepare($statement, $driver_options);
+		return $this->_last_stmt = $stmt ?: null;
 	}
 
 	/**
@@ -237,26 +236,23 @@ class DB
 		}
 
 		// Clean up any previous statement.
-		if (isset($this->_last_stmt))
+		if (isset($this->_last_stmt) && $this->_last_stmt instanceof \PDOStatement)
 		{
-			if ($this->_last_stmt instanceof \PDOStatement)
-			{
-				$this->_last_stmt->closeCursor();
-			}
+			$this->_last_stmt->closeCursor();
 			$this->_last_stmt = null;
 		}
 
 		// Execute either a prepared statement or a regular query depending on whether there are arguments.
 		if (count($args))
 		{
-			$this->_last_stmt = $this->_handle->prepare($query_string);
-			$this->_last_stmt->execute($args);
+			$stmt = $this->_handle->prepare($query_string);
+			$stmt->execute($args);
 		}
 		else
 		{
-			$this->_last_stmt = $this->_handle->query($query_string);
+			$stmt = $this->_handle->query($query_string);
 		}
-		return $this->_last_stmt ?: null;
+		return $this->_last_stmt = $stmt ?: null;
 	}
 
 	/**
@@ -384,12 +380,9 @@ class DB
 				$query_string .= "\n" . sprintf('/* %s %s */', $query_id, \RX_CLIENT_IP);
 			}
 
-			if (isset($this->_last_stmt))
+			if (isset($this->_last_stmt) && $this->_last_stmt instanceof \PDOStatement)
 			{
-				if ($this->_last_stmt instanceof \PDOStatement)
-				{
-					$this->_last_stmt->closeCursor();
-				}
+				$this->_last_stmt->closeCursor();
 				$this->_last_stmt = null;
 			}
 
@@ -410,6 +403,7 @@ class DB
 				$output->add('_elapsed_time', '0.00000');
 				$output->page_navigation = new \PageHandler(0, 0, 0);
 				$output->data = null;
+				$this->_last_stmt = null;
 				$this->_query_id = '';
 				$this->_total_time += (microtime(true) - $start_time);
 				return $output;
@@ -430,6 +424,7 @@ class DB
 			$output->add('_elapsed_time', '0.00000');
 			$output->page_navigation = new \PageHandler(0, 0, 0);
 			$output->data = null;
+			$this->_last_stmt = null;
 			$this->_query_id = '';
 			$this->_total_time += (microtime(true) - $start_time);
 			return $output;
@@ -477,12 +472,9 @@ class DB
 				$query_string .= "\n" . sprintf('/* %s %s */', $query_id, \RX_CLIENT_IP);
 			}
 
-			if (isset($this->_last_stmt))
+			if (isset($this->_last_stmt) && $this->_last_stmt instanceof \PDOStatement)
 			{
-				if ($this->_last_stmt instanceof \PDOStatement)
-				{
-					$this->_last_stmt->closeCursor();
-				}
+				$this->_last_stmt->closeCursor();
 				$this->_last_stmt = null;
 			}
 
@@ -498,6 +490,7 @@ class DB
 
 			if ($this->isError())
 			{
+				$this->_last_stmt = null;
 				$output = $this->getError();
 				$output->add('_count', $query_string);
 				return $output;
