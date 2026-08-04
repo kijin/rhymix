@@ -63,6 +63,20 @@ class PasswordTest extends \Codeception\Test\Unit
 	{
 		$password = Rhymix\Framework\Security::getRandom(32);
 
+		if (defined('\PASSWORD_ARGON2ID'))
+		{
+			$hash = Rhymix\Framework\Password::hashPassword($password, 'argon2id');
+			$this->assertRegExp('/^\$argon2id\$/', $hash);
+			$this->assertTrue(Rhymix\Framework\Password::checkPassword($password, $hash));
+		}
+
+		if (defined('\CRYPT_BLOWFISH'))
+		{
+			$hash = Rhymix\Framework\Password::hashPassword($password, 'bcrypt');
+			$this->assertRegExp('/^\$2y\$/', $hash);
+			$this->assertTrue(Rhymix\Framework\Password::checkPassword($password, $hash));
+		}
+
 		$algos = array('whirlpool', 'ripemd160', 'bcrypt');
 		$hash = Rhymix\Framework\Password::hashPassword($password, $algos);
 		$this->assertRegExp('/^\$2y\$/', $hash);
