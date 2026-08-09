@@ -1231,12 +1231,13 @@ class MemberController extends Member
 		unset($_SESSION['rechecked_password_step']);
 		$this->setSessionInfo();
 
+		// Clear cache and set session refresh flag
+		self::clearMemberCache($args->member_srl);
+		$_SESSION['RHYMIX']['next_refresh'] = true;
+
 		// Return result
 		$this->add('member_srl', $args->member_srl);
 		$this->setMessage('success_updated');
-
-		self::clearMemberCache($args->member_srl);
-
 		$returnUrl = Context::get('success_return_url') ? Context::get('success_return_url') : getNotEncodedUrl('', 'mid', Context::get('mid'), 'act', 'dispMemberInfo');
 		$this->setRedirectUrl($returnUrl);
 	}
@@ -1290,6 +1291,10 @@ class MemberController extends Member
 		{
 			Rhymix\Framework\Session::destroyOtherSessions($member_srl);
 		}
+
+		// Clear cache and set session refresh flag
+		self::clearMemberCache($args->member_srl);
+		$_SESSION['RHYMIX']['next_refresh'] = true;
 
 		$this->add('member_srl', $member_srl);
 		$this->setMessage('member.msg_password_changed');

@@ -1509,36 +1509,43 @@ class Context
 	{
 		if(starts_with('XE_VALIDATOR_', $key, false) && $key !== 'xe_validator_id')
 		{
-			return;
+			return null;
 		}
 
+		// Check if the input variable is an array.
 		$result = array();
-		if(!$is_array = is_array($val))
+		$is_array = is_array($val);
+		if ($is_array)
+		{
+			if (in_array($key, ['mid', 'vid', 'act', 'module']))
+			{
+				self::$_instance->security_check = 'DENY ALL';
+				self::$_instance->security_check_detail = 'ERR_UNSAFE_VAR';
+				return null;
+			}
+			elseif (isset(self::$_auto_escape_keys[$key]) || in_array($key, ['success_return_url', 'error_return_url']))
+			{
+				return null;
+			}
+		}
+		else
 		{
 			$val = array($val);
 		}
+
 		foreach($val as $_key => $_val)
 		{
 			if($is_array)
 			{
-				if(in_array($key, array('mid', 'vid', 'act', 'module')))
-				{
-					self::$_instance->security_check = 'DENY ALL';
-					self::$_instance->security_check_detail = 'ERR_UNSAFE_VAR';
-					$_val = null;
-				}
-				else
-				{
-					$_val = self::_filterRequestVar($key, $_val);
-				}
+				$_val = self::_filterRequestVar($key, $_val);
 			}
 			elseif($_val = trim($_val))
 			{
-				if(in_array($key, array('page', 'cpage')) || ends_with('srl', $key, false) && preg_match('/[^0-9,]/', $_val))
+				if(in_array($key, ['page', 'cpage']) || ends_with('srl', $key, false) && preg_match('/[^0-9,]/', $_val))
 				{
 					$_val = (int)$_val;
 				}
-				elseif(in_array($key, array('mid')))
+				elseif(in_array($key, ['mid']))
 				{
 					$_val = preg_match('!^([a-z][a-z0-9_-]+)(/[a-z][a-z0-9_-]+)*$!i', $_val) ? $_val : null;
 					if($_val === null)
@@ -1547,7 +1554,7 @@ class Context
 						self::$_instance->security_check_detail = 'ERR_UNSAFE_VAR';
 					}
 				}
-				elseif(in_array($key, array('vid', 'act', 'module')))
+				elseif(in_array($key, ['vid', 'act', 'module']))
 				{
 					$_val = preg_match('/^[a-zA-Z0-9_-]*$/', $_val) ? $_val : null;
 					if($_val === null)
@@ -1564,7 +1571,7 @@ class Context
 						$_val = strtr($_val, array('&amp;' => '&'));
 					}
 				}
-				elseif(in_array($key, array('success_return_url', 'error_return_url')))
+				elseif(in_array($key, ['success_return_url', 'error_return_url']))
 				{
 					if (!Rhymix\Framework\URL::isInternalURL($_val))
 					{
