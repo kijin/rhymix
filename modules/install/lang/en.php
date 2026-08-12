@@ -28,6 +28,7 @@ $lang->install_checklist_title['session'] = 'session';
 $lang->install_checklist_title['db_support'] = 'DB support';
 $lang->install_checklist_desc['php_version'] = '[Required] Rhymix supports only PHP Version %s or higher';
 $lang->install_checklist_desc['php_version_warning'] = '[Recommend] Rhymix recommends only PHP Version %s or higher';
+$lang->install_checklist_desc['db_support'] = '[Required] Rhymix requires the pdo_mysql extension to be installed.';
 $lang->install_checklist_desc['permission'] = '[Required] Please create a \'files\' directory under the installation path and change its permissions to 777.';
 $lang->install_checklist_desc['xml'] = '[Required] XML Library is needed for XML communication';
 $lang->install_checklist_desc['session'] = '[Required] PHP Session must be available, and \'session.auto_start\' must be off in order to use the session.';

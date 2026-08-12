@@ -190,8 +190,6 @@ class PageAdminView extends Page
 
 	function dispPageAdminMobileContentModify()
 	{
-		Context::set('module_info', $this->module_info);
-
 		if ($this->module_info->page_type == 'WIDGET')
 		{
 			$this->_setWidgetTypeContentModify(true);
@@ -200,6 +198,8 @@ class PageAdminView extends Page
 		{
 			$this->_setArticleTypeContentModify(true);
 		}
+
+		Context::set('module_info', $this->module_info);
 	}
 
 	/**
@@ -207,9 +207,6 @@ class PageAdminView extends Page
 	 */
 	function dispPageAdminContentModify()
 	{
-		// Set the module information
-		Context::set('module_info', $this->module_info);
-
 		if ($this->module_info->page_type == 'WIDGET')
 		{
 			$this->_setWidgetTypeContentModify();
@@ -218,6 +215,8 @@ class PageAdminView extends Page
 		{
 			$this->_setArticleTypeContentModify();
 		}
+
+		Context::set('module_info', $this->module_info);
 	}
 
 	function _setWidgetTypeContentModify($isMobile = false)
